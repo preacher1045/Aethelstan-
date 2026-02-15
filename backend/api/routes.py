@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
 from backend.config import MODEL_PATH
-from backend.ingestion.pcap_loader import extract_features_from_upload
+from backend.ingestion.pcap_loader import extract_features_from_path, save_upload_file
 from backend.insight.generator import InsightGenerator
 from backend.ml.production_inference import predict_with_feature_engineering
 from backend.storage.repository import (
@@ -22,6 +22,91 @@ from backend.storage.repository import (
 
 
 router = APIRouter()
+
+
+def _validate_upload(file: UploadFile) -> None:
+	if not file.filename:
+		raise HTTPException(status_code=400, detail="Filename is required.")
+	suffix = Path(file.filename).suffix.lower()
+	if suffix not in {".pcap", ".pcapng"}:
+		raise HTTPException(status_code=400, detail="Only .pcap or .pcapng files are supported.")
+
+
+def _process_session(session_id: str, saved_path: Path) -> None:
+	try:
+		saved_path, features_json = extract_features_from_path(saved_path, session_id)
+		results = predict_with_feature_engineering(str(features_json), model_path=str(MODEL_PATH))
+		records = results["detailed_results"].to_dict(orient="records")
+
+		packet_total = sum(int(r.get("packet_count", 0) or 0) for r in records)
+		window_starts = [r.get("window_start") for r in records if r.get("window_start") is not None]
+		window_ends = [r.get("window_end") for r in records if r.get("window_end") is not None]
+		start_ts = min(window_starts) if window_starts else None
+		end_ts = max(window_ends) if window_ends else None
+		duration = (end_ts - start_ts) if start_ts is not None and end_ts is not None else None
+
+		update_pcap_session(
+			session_id,
+			{
+				"filepath": str(saved_path),
+				"file_size_bytes": saved_path.stat().st_size,
+				"total_packets": packet_total,
+				"start_timestamp": start_ts,
+				"end_timestamp": end_ts,
+				"duration_seconds": duration,
+				"status": "completed",
+			},
+		)
+
+		for idx, record in enumerate(records):
+			window_id = idx + 1
+			window_row = create_traffic_window(_build_traffic_window_data(session_id, window_id, record))
+			create_anomaly_result(
+				_build_anomaly_result_data(
+					session_id,
+					window_id,
+					window_row.get("id"),
+					record,
+				)
+			)
+
+		insight_generator = InsightGenerator(max_alerts=5)
+		insight_report = insight_generator.generate(records)
+		create_insight(
+			{
+				"session_id": session_id,
+				"insight_type": "summary",
+				"summary": insight_report.get("summary", ""),
+				"details": insight_report.get("stats"),
+			}
+		)
+		for alert in insight_report.get("alerts", []):
+			create_insight(
+				{
+					"session_id": session_id,
+					"insight_type": "alert",
+					"alert_type": alert.get("alert_type"),
+					"severity": alert.get("severity"),
+					"confidence": alert.get("confidence"),
+					"summary": alert.get("summary", ""),
+					"details": alert.get("details"),
+					"tags": alert.get("details", {}).get("tags"),
+					"packet_count": alert.get("details", {}).get("packet_count"),
+					"total_bytes": alert.get("details", {}).get("total_bytes"),
+					"unique_src_ips": alert.get("details", {}).get("unique_src_ips"),
+					"unique_dst_ips": alert.get("details", {}).get("unique_dst_ips"),
+					"packets_per_sec": alert.get("details", {}).get("packets_per_sec"),
+					"bytes_per_sec": alert.get("details", {}).get("bytes_per_sec"),
+				}
+			)
+	except Exception as exc:
+		update_pcap_session(
+			session_id,
+			{
+				"status": "failed",
+				"error_message": str(exc),
+			},
+		)
 
 
 def _normalize_results(results: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,7 +190,8 @@ def _build_anomaly_result_data(
 
 
 @router.post("/upload")
-async def upload_pcap(file: UploadFile = File(...)) -> Dict[str, Any]:
+async def upload_pcap(background_tasks: BackgroundTasks, file: UploadFile = File(...)) -> Dict[str, Any]:
+	_validate_upload(file)
 	session_id = str(uuid4())
 	create_pcap_session(
 		{
@@ -116,77 +202,12 @@ async def upload_pcap(file: UploadFile = File(...)) -> Dict[str, Any]:
 	)
 
 	try:
-		saved_path, features_json = extract_features_from_upload(file, session_id)
-		results = predict_with_feature_engineering(str(features_json), model_path=str(MODEL_PATH))
-		records = results["detailed_results"].to_dict(orient="records")
-
-		packet_total = sum(int(r.get("packet_count", 0) or 0) for r in records)
-		window_starts = [r.get("window_start") for r in records if r.get("window_start") is not None]
-		window_ends = [r.get("window_end") for r in records if r.get("window_end") is not None]
-		start_ts = min(window_starts) if window_starts else None
-		end_ts = max(window_ends) if window_ends else None
-		duration = (end_ts - start_ts) if start_ts is not None and end_ts is not None else None
-
-		update_pcap_session(
-			session_id,
-			{
-				"filepath": str(saved_path),
-				"file_size_bytes": saved_path.stat().st_size,
-				"total_packets": packet_total,
-				"start_timestamp": start_ts,
-				"end_timestamp": end_ts,
-				"duration_seconds": duration,
-				"status": "completed",
-			},
-		)
-
-		for idx, record in enumerate(records):
-			window_id = idx + 1
-			window_row = create_traffic_window(_build_traffic_window_data(session_id, window_id, record))
-			create_anomaly_result(
-				_build_anomaly_result_data(
-					session_id,
-					window_id,
-					window_row.get("id"),
-					record,
-				)
-			)
-
-		insight_generator = InsightGenerator(max_alerts=5)
-		insight_report = insight_generator.generate(records)
-		create_insight(
-			{
-				"session_id": session_id,
-				"insight_type": "summary",
-				"summary": insight_report.get("summary", ""),
-				"details": insight_report.get("stats"),
-			}
-		)
-		for alert in insight_report.get("alerts", []):
-			create_insight(
-				{
-					"session_id": session_id,
-					"insight_type": "alert",
-					"alert_type": alert.get("alert_type"),
-					"severity": alert.get("severity"),
-					"confidence": alert.get("confidence"),
-					"summary": alert.get("summary", ""),
-					"details": alert.get("details"),
-					"tags": alert.get("details", {}).get("tags"),
-					"packet_count": alert.get("details", {}).get("packet_count"),
-					"total_bytes": alert.get("details", {}).get("total_bytes"),
-					"unique_src_ips": alert.get("details", {}).get("unique_src_ips"),
-					"unique_dst_ips": alert.get("details", {}).get("unique_dst_ips"),
-					"packets_per_sec": alert.get("details", {}).get("packets_per_sec"),
-					"bytes_per_sec": alert.get("details", {}).get("bytes_per_sec"),
-				}
-			)
-
+		saved_path = save_upload_file(file, session_id)
+		background_tasks.add_task(_process_session, session_id, saved_path)
 		return {
 			"session_id": session_id,
-			"features_file": str(features_json),
-			"results": _normalize_results(results),
-			"insights": insight_report,
+			"status": "processing",
+			"filename": file.filename,
 		}
 	except Exception as exc:
 		update_pcap_session(
