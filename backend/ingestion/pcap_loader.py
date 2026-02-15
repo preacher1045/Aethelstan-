@@ -28,6 +28,25 @@ def save_upload_file(upload_file: UploadFile, session_id: str) -> Path:
 	return destination
 
 
+def convert_pcapng_to_pcap(pcapng_path: Path) -> Path:
+	pcap_path = pcapng_path.with_suffix(".pcap")
+	if pcap_path.exists():
+		return pcap_path
+
+	try:
+		from scapy.utils import PcapNgReader, PcapWriter
+		reader = PcapNgReader(str(pcapng_path))
+		linktype = getattr(reader, "linktype", None)
+		writer = PcapWriter(str(pcap_path), append=False, sync=True, linktype=linktype)
+		for pkt in reader:
+			writer.write(pkt)
+		reader.close()
+		writer.close()
+		return pcap_path
+	except Exception as exc:
+		raise RuntimeError(f"Failed to convert {pcapng_path.name} to pcap: {exc}") from exc
+
+
 def run_rust_extractor(pcap_path: Path, session_id: str) -> Path:
 	binary = _resolve_rust_binary()
 	if not binary.exists():
@@ -46,5 +65,8 @@ def run_rust_extractor(pcap_path: Path, session_id: str) -> Path:
 
 def extract_features_from_upload(upload_file: UploadFile, session_id: str) -> Tuple[Path, Path]:
 	pcap_path = save_upload_file(upload_file, session_id)
-	features_json = run_rust_extractor(pcap_path, session_id)
+	pcap_for_extraction = pcap_path
+	if pcap_path.suffix.lower() == ".pcapng":
+		pcap_for_extraction = convert_pcapng_to_pcap(pcap_path)
+	features_json = run_rust_extractor(pcap_for_extraction, session_id)
 	return pcap_path, features_json
