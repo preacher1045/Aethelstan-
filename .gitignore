@@ -1,0 +1,189 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.manifest
+*.spec
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# OS Files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Data Files (Development/Testing)
+data/raw/*.pcap
+data/raw/*.pcapng
+data/raw/local_captures/
+data/raw/local_captures_converted/
+data/raw/enterprise_pcap_files/
+data/raw/split_merged_50M/
+data/processed/*.json
+data/processed/*.jsonl
+data/processed/*.csv
+data/processed/local_captures/
+data/processed/enterprise_pcap_files/
+data/processed/features_split_merged_50M/
+data/processed/split_features_merged_50M/
+data/training/
+data/baselines/*.json
+data/baselines/*.csv
+
+# Models - Keep production model, ignore development/experimental models
+models/*.pkl
+!models/network_anomaly_model_combined.pkl
+models/*_test*.pkl
+models/*_experiment*.pkl
+models/*_backup*.pkl
+models/*_old*.pkl
+# Exclude predictions and temporary model outputs
+models/*_predictions.json
+models/scale_robust_predictions.json
+# Exclude model config files (regenerated during runs)
+models/*_config.json
+models/behavioral_features_config.json
+models/scale_robust_features_config.json
+
+# Other model formats (if used)
+models/*.joblib
+models/*.h5
+models/*.pt
+models/*.pth
+
+# Rust Build Artifacts
+backend/features/rust_extractor/target/
+backend/features/rust_extractor/Cargo.lock
+*.rs.bk
+
+# Logs
+*.log
+logs/
+*.out
+
+# Benchmark and Performance Results
+benchmark_results/
+*.benchmark
+performance_*.json
+
+# Test Coverage
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Documentation Build
+docs/_build/
+docs/.doctrees/
+
+# Temporary Files
+*.tmp
+*.temp
+*.bak
+*.swp
+tmp/
+temp/
+*.cache
+*.pkl.bak
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+*.key
+secrets.yml
+secrets.yaml
+credentials.json
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# Generated Visualizations (can regenerate)
+docs/*.png
+docs/*.jpg
+docs/*.pdf
+docs/*.pur
+
+# Analysis Reports and Model Insights (generated outputs)
+docs/model_insight/
+docs/**/*.json
+docs/**/*.png
+
+# Compiled Frontend
+frontend/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+
+# Package Manager
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Misc
+.cache/
+*.pid
+*.seed
+*.pid.lock
+
+# Script Outputs & Exports
+scripts/output/
+scripts/exports/
+exports/
+output/
+
+# Large Files (use Git LFS if needed)
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Backup files
+*.backup
+*~.nib
+*.orig
