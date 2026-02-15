@@ -1,35 +1,24 @@
-import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
+
+from backend.config import DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT, DB_USER
 
 
-# Load environment variables from .env file
-load_dotenv()
+def db_connection():
+    if not DB_NAME or not DB_USER:
+        raise ValueError("DB_NAME and DB_USER must be set in the environment.")
 
-def db_connection ():
-    # try:
-    #     # Establish a connection to the PostgreSQL database
-    #     connection = psycopg2.connect(
-    #         dbname=os.getenv("DB_NAME"),
-    #         user=os.getenv("DB_USER"),
-    #         password=os.getenv("DB_PASSWORD"),
-    #         host=os.getenv("DB_HOST"),
-    #         port=os.getenv("DB_PORT")
-    #     )
-    #     print("Database connection established successfully.")
-    #     connection.close()  # Close the connection after use
-    # except Exception as e:
-    #     print(f"Error connecting to the database: {e}")
-    
-    return psycopg2.connect(
-            dbname=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT"),
-            cursor_factory=RealDictCursor
-        )
+    conn_params = {
+        "dbname": DB_NAME,
+        "user": DB_USER,
+        "password": DB_PASSWORD,
+        "host": DB_HOST,
+        "cursor_factory": RealDictCursor,
+    }
+    if DB_PORT:
+        conn_params["port"] = int(DB_PORT)
+
+    return psycopg2.connect(**conn_params)
     
 
 
