@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -72,14 +73,16 @@ def _process_session(session_id: str, saved_path: Path) -> None:
 
 		insight_generator = InsightGenerator(max_alerts=5)
 		insight_report = insight_generator.generate(records)
+
 		create_insight(
 			{
 				"session_id": session_id,
 				"insight_type": "summary",
 				"summary": insight_report.get("summary", ""),
-				"details": insight_report.get("stats"),
+				"details": json.dumps(insight_report.get("stats")) if insight_report.get("stats") else None,
 			}
 		)
+
 		for alert in insight_report.get("alerts", []):
 			create_insight(
 				{
@@ -89,8 +92,8 @@ def _process_session(session_id: str, saved_path: Path) -> None:
 					"severity": alert.get("severity"),
 					"confidence": alert.get("confidence"),
 					"summary": alert.get("summary", ""),
-					"details": alert.get("details"),
-					"tags": alert.get("details", {}).get("tags"),
+					"details": json.dumps(alert.get("details")) if alert.get("details") else None,
+					"tags": json.dumps(alert.get("details", {}).get("tags")) if alert.get("details", {}).get("tags") else None,
 					"packet_count": alert.get("details", {}).get("packet_count"),
 					"total_bytes": alert.get("details", {}).get("total_bytes"),
 					"unique_src_ips": alert.get("details", {}).get("unique_src_ips"),
@@ -214,6 +217,7 @@ async def upload_pcap(background_tasks: BackgroundTasks, file: UploadFile = File
 			{
 				"status": "failed",
 				"error_message": str(exc),
+				"completed_at": datetime.now(datetime.timezone.utc),
 			},
 		)
 		raise HTTPException(status_code=500, detail=str(exc)) from exc

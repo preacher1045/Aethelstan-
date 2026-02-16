@@ -64,6 +64,8 @@ data/processed/split_features_merged_50M/
 data/training/
 data/baselines/*.json
 data/baselines/*.csv
+data/uploads/*.pcap
+data/uploads/*.pcapng
 
 # Models - Keep production model, ignore development/experimental models
 models/*.pkl
