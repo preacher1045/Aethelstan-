@@ -19,7 +19,7 @@ from backend.storage.repository import (
 	list_pcap_sessions,
 	update_pcap_session,
 )
-
+import json
 
 router = APIRouter()
 
@@ -122,72 +122,71 @@ def _normalize_results(results: Dict[str, Any]) -> Dict[str, Any]:
 	}
 
 
-def _build_traffic_window_data(
-	session_id: str,
-	window_id: int,
-	record: Dict[str, Any],
-) -> Dict[str, Any]:
-	return {
-		"session_id": session_id,
-		"window_id": window_id,
-		"window_start": record.get("window_start"),
-		"window_end": record.get("window_end"),
-		"packet_count": record.get("packet_count"),
-		"total_bytes": record.get("total_bytes"),
-		"avg_packet_size": record.get("avg_packet_size"),
-		"min_packet_size": record.get("min_packet_size"),
-		"max_packet_size": record.get("max_packet_size"),
-		"packet_size_std": record.get("packet_size_std"),
-		"tcp_count": record.get("tcp_count"),
-		"udp_count": record.get("udp_count"),
-		"icmp_count": record.get("icmp_count"),
-		"other_count": record.get("other_count"),
-		"tcp_ratio": record.get("tcp_ratio"),
-		"udp_ratio": record.get("udp_ratio"),
-		"icmp_ratio": record.get("icmp_ratio"),
-		"other_ratio": record.get("other_ratio"),
-		"unique_src_ips": record.get("unique_src_ips"),
-		"unique_dst_ips": record.get("unique_dst_ips"),
-		"unique_src_ratio": record.get("unique_src_ratio"),
-		"unique_dst_ratio": record.get("unique_dst_ratio"),
-		"flow_count": record.get("flow_count"),
-		"flow_ratio": record.get("flow_ratio"),
-		"avg_flow_packets": record.get("avg_flow_packets"),
-		"avg_flow_bytes": record.get("avg_flow_bytes"),
-		"packets_per_sec": record.get("packets_per_sec"),
-		"bytes_per_sec": record.get("bytes_per_sec"),
-		"port_diversity": record.get("port_diversity"),
-		"avg_inter_arrival_time": record.get("avg_inter_arrival_time"),
-		"connection_rate": record.get("connection_rate"),
-		"features_json": record,
-	}
 
+def _build_traffic_window_data(
+    session_id: str,
+    window_id: int,
+    record: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "session_id": session_id,
+        "window_id": window_id,
+        "window_start": record.get("window_start"),
+        "window_end": record.get("window_end"),
+        "packet_count": record.get("packet_count"),
+        "total_bytes": record.get("total_bytes"),
+        "avg_packet_size": record.get("avg_packet_size"),
+        "min_packet_size": record.get("min_packet_size"),
+        "max_packet_size": record.get("max_packet_size"),
+        "packet_size_std": record.get("packet_size_std"),
+        "tcp_count": record.get("tcp_count"),
+        "udp_count": record.get("udp_count"),
+        "icmp_count": record.get("icmp_count"),
+        "other_count": record.get("other_count"),
+        "tcp_ratio": record.get("tcp_ratio"),
+        "udp_ratio": record.get("udp_ratio"),
+        "icmp_ratio": record.get("icmp_ratio"),
+        "other_ratio": record.get("other_ratio"),
+        "unique_src_ips": record.get("unique_src_ips"),
+        "unique_dst_ips": record.get("unique_dst_ips"),
+        "unique_src_ratio": record.get("unique_src_ratio"),
+        "unique_dst_ratio": record.get("unique_dst_ratio"),
+        "flow_count": record.get("flow_count"),
+        "flow_ratio": record.get("flow_ratio"),
+        "avg_flow_packets": record.get("avg_flow_packets"),
+        "avg_flow_bytes": record.get("avg_flow_bytes"),
+        "packets_per_sec": record.get("packets_per_sec"),
+        "bytes_per_sec": record.get("bytes_per_sec"),
+        "port_diversity": record.get("port_diversity"),
+        "avg_inter_arrival_time": record.get("avg_inter_arrival_time"),
+        "connection_rate": record.get("connection_rate"),
+        "features_json": json.dumps(record),  # ← serialize dict to JSON string
+    }
 
 def _build_anomaly_result_data(
-	session_id: str,
-	window_id: int,
-	traffic_window_id: Optional[int],
-	record: Dict[str, Any],
+    session_id: str,
+    window_id: int,
+    traffic_window_id: Optional[int],
+    record: Dict[str, Any],
 ) -> Dict[str, Any]:
-	return {
-		"session_id": session_id,
-		"window_id": window_id,
-		"traffic_window_id": traffic_window_id,
-		"is_anomaly": bool(record.get("is_anomaly")) if "is_anomaly" in record else record.get("anomaly") == -1,
-		"anomaly_score": record.get("anomaly_score") if record.get("anomaly_score") is not None else record.get("score"),
-		"confidence_score": record.get("confidence_score"),
-		"prediction_label": record.get("prediction_label"),
-		"model_name": record.get("model_name"),
-		"model_version": record.get("model_version"),
-		"threshold_used": record.get("threshold_used"),
-		"baseline_deviation": record.get("baseline_deviation"),
-		"severity_level": record.get("severity_level"),
-		"contributing_features": record.get("contributing_features"),
-		"anomaly_type": record.get("anomaly_type"),
-		"tags": record.get("tags"),
-		"processing_time_ms": record.get("processing_time_ms"),
-	}
-
+    return {
+        "session_id": session_id,
+        "window_id": window_id,
+        "traffic_window_id": traffic_window_id,
+        "is_anomaly": bool(record.get("is_anomaly")) if "is_anomaly" in record else record.get("anomaly") == -1,
+        "anomaly_score": record.get("anomaly_score") if record.get("anomaly_score") is not None else record.get("score"),
+        "confidence_score": record.get("confidence_score"),
+        "prediction_label": record.get("prediction_label"),
+        "model_name": record.get("model_name"),
+        "model_version": record.get("model_version"),
+        "threshold_used": record.get("threshold_used"),
+        "baseline_deviation": record.get("baseline_deviation"),
+        "severity_level": record.get("severity_level"),
+        "contributing_features": json.dumps(record.get("contributing_features")) if record.get("contributing_features") else None,  # ← serialize
+        "anomaly_type": record.get("anomaly_type"),
+        "tags": json.dumps(record.get("tags")) if record.get("tags") else None,  # ← serialize
+        "processing_time_ms": record.get("processing_time_ms"),
+    }
 
 @router.post("/upload")
 async def upload_pcap(background_tasks: BackgroundTasks, file: UploadFile = File(...)) -> Dict[str, Any]:

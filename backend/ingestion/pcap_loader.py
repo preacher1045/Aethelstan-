@@ -3,12 +3,20 @@ from __future__ import annotations
 import platform
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Tuple
 
 from fastapi import UploadFile
 
 from backend.config import MAX_UPLOAD_SIZE_MB, PROCESSED_DIR, RUST_BINARY, UPLOAD_DIR
+
+# Add scripts directory to path for importing conversion utility
+_scripts_dir = Path(__file__).parent.parent.parent / "scripts"
+if str(_scripts_dir) not in sys.path:
+	sys.path.insert(0, str(_scripts_dir))
+
+from convert_pcapng_to_pcap import convert_pcapng_to_pcap as _convert_pcapng
 
 
 def _resolve_rust_binary() -> Path:
@@ -40,25 +48,6 @@ def save_upload_file(upload_file: UploadFile, session_id: str) -> Path:
 	return destination
 
 
-def convert_pcapng_to_pcap(pcapng_path: Path) -> Path:
-	pcap_path = pcapng_path.with_suffix(".pcap")
-	if pcap_path.exists():
-		return pcap_path
-
-	try:
-		from scapy.utils import PcapNgReader, PcapWriter
-		reader = PcapNgReader(str(pcapng_path))
-		linktype = getattr(reader, "linktype", None)
-		writer = PcapWriter(str(pcap_path), append=False, sync=True, linktype=linktype)
-		for pkt in reader:
-			writer.write(pkt)
-		reader.close()
-		writer.close()
-		return pcap_path
-	except Exception as exc:
-		raise RuntimeError(f"Failed to convert {pcapng_path.name} to pcap: {exc}") from exc
-
-
 def run_rust_extractor(pcap_path: Path, session_id: str) -> Path:
 	binary = _resolve_rust_binary()
 	if not binary.exists():
@@ -78,7 +67,9 @@ def run_rust_extractor(pcap_path: Path, session_id: str) -> Path:
 def extract_features_from_path(pcap_path: Path, session_id: str) -> Tuple[Path, Path]:
 	pcap_for_extraction = pcap_path
 	if pcap_path.suffix.lower() == ".pcapng":
-		pcap_for_extraction = convert_pcapng_to_pcap(pcap_path)
+		pcap_converted = pcap_path.with_suffix(".pcap")
+		_convert_pcapng(pcap_path, pcap_converted)
+		pcap_for_extraction = pcap_converted
 	features_json = run_rust_extractor(pcap_for_extraction, session_id)
 	return pcap_path, features_json
 
