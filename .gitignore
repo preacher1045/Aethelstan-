@@ -66,6 +66,7 @@ data/baselines/*.json
 data/baselines/*.csv
 data/uploads/*.pcap
 data/uploads/*.pcapng
+frontend_design_images/
 
 # Models - Keep production model, ignore development/experimental models
 models/*.pkl
