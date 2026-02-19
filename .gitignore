@@ -155,8 +155,7 @@ docs/model_insight/
 docs/**/*.json
 docs/**/*.png
 
-# Compiled Frontend
-frontend/
+# Compiled Frontend (keep source, ignore build artifacts)
 frontend/node_modules/
 frontend/.next/
 frontend/out/
