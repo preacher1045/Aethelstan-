@@ -112,7 +112,7 @@ export default function TrafficAnalysisPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Flow Duration Histogram</h3>
           <p className="text-xs text-zinc-500 mt-1">Short-lived vs long-lived flows</p>
@@ -132,10 +132,14 @@ export default function TrafficAnalysisPage() {
                   {flowHistogram.values.map((value, i) => (
                     <div
                       key={flowHistogram.labels[i]}
-                      className="w-4 bg-cyan-400/70 rounded-t"
+                      className="w-4 bg-cyan-400/70 rounded-t group relative cursor-pointer hover:bg-cyan-300 transition-colors"
                       style={{ height: `${Math.min(100, (value / Math.max(flowHistogram.max, 1)) * 100)}%` }}
-                      title={`${flowHistogram.labels[i]}: ${value.toLocaleString()} flows`}
-                    />
+                    >
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-zinc-900 border border-cyan-500/50 rounded text-[10px] text-zinc-100 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        <div className="font-semibold">{flowHistogram.labels[i]}</div>
+                        <div>{value.toLocaleString()} flows</div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -177,10 +181,14 @@ export default function TrafficAnalysisPage() {
                   {packetHistogram.values.map((value, i) => (
                     <div
                       key={packetHistogram.labels[i]}
-                      className="w-5 bg-teal-400/70 rounded-t"
+                      className="flex-1 bg-teal-400/70 rounded-t group relative cursor-pointer hover:bg-teal-300 transition-colors"
                       style={{ height: `${Math.min(100, (value / Math.max(packetHistogram.max, 1)) * 100)}%` }}
-                      title={`${packetHistogram.labels[i]}: ${value.toLocaleString()} packets`}
-                    />
+                    >
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-zinc-900 border border-teal-500/50 rounded text-[10px] text-zinc-100 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        <div className="font-semibold">{packetHistogram.labels[i]}</div>
+                        <div>{value.toLocaleString()} packets</div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -204,7 +212,7 @@ export default function TrafficAnalysisPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="lg:col-span-3 bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Throughput Heatmap</h3>
           <p className="text-xs text-zinc-500 mt-1">Time vs volume intensity</p>

@@ -40,6 +40,7 @@ function Tooltip({ text, children }: TooltipProps) {
 export default function NetworkDashboard({ results, insights, totalPackets, totalBytes, duration }: NetworkDashboardProps) {
     const [timeRange, setTimeRange] = useState<'all' | '1h' | '24h'>('all');
     const [explanationMode, setExplanationMode] = useState<'technical' | 'beginner'>('technical');
+    const [hoveredTimelinePoint, setHoveredTimelinePoint] = useState<number | null>(null);
 
     if (results.length === 0) {
         return (
@@ -120,7 +121,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <Tooltip text={explanationMode === 'beginner' 
             ? "Total number of time windows analyzed in your network capture" 
             : "Total flow aggregation windows extracted from PCAP"}>
-            <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
+            <div className="bg-linear-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
                 <div className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Total Windows</div>
                 <div className="text-2xl font-bold text-zinc-100">{results.length}</div>
                 <div className="text-xs text-cyan-400 mt-1">Time-aggregated</div>
@@ -130,7 +131,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <Tooltip text={explanationMode === 'beginner'
             ? "Total packets captured in the network traffic"
             : "Sum of all packets across all flows in the capture"}>
-            <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
+            <div className="bg-linear-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
                 <div className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Total Packets</div>
                 <div className="text-2xl font-bold text-zinc-100">{totalPackets?.toLocaleString() || 'N/A'}</div>
                 <div className="text-xs text-zinc-500 mt-1">Captured</div>
@@ -140,7 +141,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <Tooltip text={explanationMode === 'beginner'
             ? "Total amount of data transferred in megabytes"
             : "Aggregate data volume across all flows (application layer)"}>
-            <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
+            <div className="bg-linear-to-r from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
                 <div className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Data Transfer</div>
                 <div className="text-2xl font-bold text-zinc-100">
                 {totalBytes ? `${(totalBytes / 1024 / 1024).toFixed(2)}` : 'N/A'}
@@ -152,7 +153,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <Tooltip text={explanationMode === 'beginner'
             ? "Average speed of data transfer in kilobytes per second"
             : "Mean throughput calculated as total_bytes / capture_duration"}>
-            <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
+            <div className="bg-linear-to-r from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
                 <div className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Avg Throughput</div>
                 <div className="text-2xl font-bold text-zinc-100">{avgThroughput}</div>
                 <div className="text-xs text-zinc-500 mt-1">KB/s</div>
@@ -162,7 +163,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <Tooltip text={explanationMode === 'beginner'
             ? "Time windows flagged as unusual by our ML algorithm"
             : "Anomalies detected using Isolation Forest / statistical deviation"}>
-            <div className="bg-gradient-to-br from-red-950/50 to-zinc-900 border border-red-900/50 rounded-lg p-4 hover:border-red-500/50 transition-colors">
+            <div className="bg-linear-to-r from-red-950/50 to-zinc-900 border border-red-900/50 rounded-lg p-4 hover:border-red-500/50 transition-colors">
                 <div className="text-xs text-red-300 uppercase tracking-wide mb-1">Anomalies</div>
                 <div className="text-2xl font-bold text-red-400">{anomalyCount}</div>
                 <div className="text-xs text-red-500 mt-1">
@@ -174,7 +175,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <Tooltip text={explanationMode === 'beginner'
             ? "Overall network health based on anomaly detection"
             : "Composite score: packet loss + anomaly rate + behavioral entropy"}>
-            <div className={`bg-gradient-to-br from-zinc-900 to-zinc-800 border rounded-lg p-4 hover:border-opacity-100 transition-colors ${
+            <div className={`bg-linear-to-r from-zinc-900 to-zinc-800 border rounded-lg p-4 hover:border-opacity-100 transition-colors ${
                 healthScore === 'Optimal' || healthScore === 'Normal' 
                 ? 'border-emerald-900/50 hover:border-emerald-500/50' 
                 : healthScore === 'Degraded'
@@ -189,7 +190,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
         </div>
 
         {/* Main Charts Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             {/* Anomaly Score Timeline */}
             <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-6 lg:col-span-2">
             <div className="flex items-center justify-between mb-4">
@@ -286,6 +287,37 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
                     );
                     })}
                 </svg>
+                {/* Interactive hover layer */}
+                <div className="absolute inset-0">
+                  {timelineData.map((d, i) => {
+                    if (!d.isAnomaly) return null;
+                    const x = (i / (timelineData.length - 1)) * 100;
+                    const y = 100 - (d.score / maxScore) * 100;
+                    const color = d.severity === 'critical' ? 'bg-red-500' : 
+                                    d.severity === 'high' ? 'bg-orange-500' : 
+                                    d.severity === 'medium' ? 'bg-amber-500' : 'bg-blue-500';
+                    return (
+                      <div
+                        key={i}
+                        className="absolute group"
+                        style={{ left: `${x}%`, top: `${y}%`, transform: 'translate(-50%, -50%)' }}
+                        onMouseEnter={() => setHoveredTimelinePoint(i)}
+                        onMouseLeave={() => setHoveredTimelinePoint(null)}
+                      >
+                        <div className={`w-2 h-2 rounded-full ${color} cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity ring-2 ring-white/50`} />
+                        {hoveredTimelinePoint === i && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-900 border border-cyan-500/50 rounded text-[10px] text-zinc-100 whitespace-nowrap z-10 pointer-events-none">
+                            <div className="font-semibold">Window {i + 1}</div>
+                            <div>Score: {d.score.toFixed(3)}</div>
+                            <div className="text-red-400 capitalize">
+                              {d.severity} Severity
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
                 </div>
 
                 <div className="ml-14 mt-2 flex items-center justify-center gap-4 text-xs text-zinc-500">
@@ -323,7 +355,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
                         className={`h-3 ${item.color} rounded-full transition-all duration-700 ease-out`}
                         style={{ width: `${percentage}%` }}
                         >
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer"></div>
+                        <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/10 to-transparent animate-shimmer"></div>
                         </div>
                     </div>
                     </div>
@@ -390,7 +422,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
 
         {/* Educational Panel */}
         {explanationMode === 'beginner' && (
-            <div className="bg-gradient-to-r from-blue-950/30 to-purple-950/30 border border-blue-900/30 rounded-lg p-6">
+            <div className="bg-linear-to-r from-blue-950/30 to-purple-950/30 border border-blue-900/30 rounded-lg p-6">
             <h4 className="text-sm font-semibold text-blue-300 mb-3">📚 Understanding Your Dashboard</h4>
             <div className="grid md:grid-cols-2 gap-4 text-xs text-zinc-300">
                 <div>

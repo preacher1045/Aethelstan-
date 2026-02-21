@@ -96,7 +96,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     <p className="text-sm font-semibold text-red-800 dark:text-red-300 mb-2">
                     Error Details:
                     </p>
-                    <p className="text-sm text-red-700 dark:text-red-400 font-mono break-words">
+                    <p className="text-sm text-red-700 dark:text-red-400 font-mono wrap-break-word">
                     {this.state.error?.message || 'Unknown error'}
                     </p>
                 </div>

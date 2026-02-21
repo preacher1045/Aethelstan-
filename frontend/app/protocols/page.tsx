@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useLatestSessionData } from '@/lib/useLatestSessionData';
+import Pagination from '@/components/Pagination';
 
 interface FlowData {
   id: number;
@@ -28,13 +29,17 @@ interface SuspiciousPattern {
 
 export default function ProtocolFlowPage() {
   const { session, results, trafficWindows, flows, portStats, loading, error } = useLatestSessionData();
+  const [flowsPage, setFlowsPage] = useState(1);
+  const [portsPage, setPortsPage] = useState(1);
+  const flowsPerPage = 4;
+  const portsPerPage = 4;
 
   const topFlows = useMemo<FlowData[]>(() => {
     if (flows.length === 0) {
       return [];
     }
 
-    return flows.slice(0, 10).map((flow) => {
+    return flows.map((flow) => {
       const duration = flow.duration_seconds !== undefined
         ? `${flow.duration_seconds.toFixed(2)}s`
         : 'N/A';
@@ -49,6 +54,12 @@ export default function ProtocolFlowPage() {
       };
     });
   }, [flows]);
+
+  const paginatedFlows = useMemo(() => {
+    const start = (flowsPage - 1) * flowsPerPage;
+    const end = start + flowsPerPage;
+    return topFlows.slice(start, end);
+  }, [topFlows, flowsPage, flowsPerPage]);
 
   const portUsage = useMemo<PortUsageData[]>(() => {
     if (portStats.length === 0) {
@@ -74,7 +85,7 @@ export default function ProtocolFlowPage() {
 
     const aggregatedList = Array.from(aggregated.values()).sort((a, b) => b.count - a.count);
     const totalPackets = aggregatedList.reduce((sum, stat) => sum + stat.count, 0) || 1;
-    return aggregatedList.slice(0, 8).map((stat) => ({
+    return aggregatedList.map((stat) => ({
       port: stat.port,
       service: stat.service,
       protocol: stat.protocol,
@@ -82,6 +93,12 @@ export default function ProtocolFlowPage() {
       count: stat.count,
     }));
   }, [portStats]);
+
+  const paginatedPorts = useMemo(() => {
+    const start = (portsPage - 1) * portsPerPage;
+    const end = start + portsPerPage;
+    return portUsage.slice(start, end);
+  }, [portUsage, portsPage, portsPerPage]);
 
   const tcpHealthMetrics = useMemo(() => {
     if (trafficWindows.length === 0) {
@@ -181,7 +198,8 @@ export default function ProtocolFlowPage() {
         <h3 className="text-lg font-semibold text-zinc-100">Top Flows</h3>
         <p className="text-xs text-zinc-500 mt-1">Src IP, Dst IP, protocol, duration, packets, bytes</p>
         {topFlows.length > 0 ? (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-zinc-500 uppercase border-b border-zinc-800">
               <tr>
@@ -194,7 +212,7 @@ export default function ProtocolFlowPage() {
               </tr>
             </thead>
             <tbody className="text-zinc-300">
-              {topFlows.map((flow) => (
+              {paginatedFlows.map((flow) => (
                 <tr key={flow.id} className="border-b border-zinc-800">
                   <td className="py-2">{flow.src}</td>
                   <td className="py-2">{flow.dst}</td>
@@ -206,6 +224,13 @@ export default function ProtocolFlowPage() {
               ))}
             </tbody>
           </table>
+          </div>
+          <Pagination
+            currentPage={flowsPage}
+            totalItems={topFlows.length}
+            itemsPerPage={flowsPerPage}
+            onPageChange={setFlowsPage}
+          />
         </div>
         ) : (
         <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
@@ -215,7 +240,7 @@ export default function ProtocolFlowPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">TCP Health Metrics</h3>
           {tcpHealthMetrics ? (
@@ -265,8 +290,9 @@ export default function ProtocolFlowPage() {
           <h3 className="text-lg font-semibold text-zinc-100">Port Usage Distribution</h3>
           <p className="text-xs text-zinc-500 mt-1">Top services by port activity</p>
           {portUsage.length > 0 ? (
-          <div className="mt-4 space-y-3">
-            {portUsage.map((port) => (
+          <div className="mt-4">
+            <div className="space-y-3">
+            {paginatedPorts.map((port) => (
               <div key={`${port.port}-${port.protocol}`} className="flex items-center gap-3">
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
@@ -280,6 +306,13 @@ export default function ProtocolFlowPage() {
                 <div className="text-xs text-zinc-500 w-20 text-right">{port.count.toLocaleString()}</div>
               </div>
             ))}
+            </div>
+            <Pagination
+              currentPage={portsPage}
+              totalItems={portUsage.length}
+              itemsPerPage={portsPerPage}
+              onPageChange={setPortsPage}
+            />
           </div>
           ) : (
           <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
