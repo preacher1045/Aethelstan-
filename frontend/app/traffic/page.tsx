@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useLatestSessionData } from '@/lib/useLatestSessionData';
+import { useSearchParams } from 'next/navigation';
+import { useSessionData } from '@/lib/useSessionData';
 
 type HistogramData = {
   values: number[];
@@ -10,7 +11,9 @@ type HistogramData = {
 };
 
 export default function TrafficAnalysisPage() {
-  const { session, results, trafficWindows, loading, error } = useLatestSessionData();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get('sessionId');
+  const { session, results, trafficWindows, loading, error } = useSessionData(sessionId);
 
   const flowHistogram = useMemo<HistogramData | null>(() => {
     if (trafficWindows.length === 0) {

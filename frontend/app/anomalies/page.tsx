@@ -1,11 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useLatestSessionData } from '@/lib/useLatestSessionData';
+import { useSearchParams } from 'next/navigation';
+import { useSessionData } from '@/lib/useSessionData';
 import Pagination from '@/components/Pagination';
 
 export default function AnomaliesPage() {
-  const { session, results, insights, trafficWindows, flows, portStats, loading, error } = useLatestSessionData();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get('sessionId');
+  const { session, results, insights, trafficWindows, flows, portStats, loading, error } = useSessionData(sessionId);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   const [anomaliesPage, setAnomaliesPage] = useState(1);
   const anomaliesPerPage = 4;

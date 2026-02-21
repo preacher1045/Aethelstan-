@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getSessions, getResults, getInsights, getTrafficWindows, getFlows, Session, AnomalyResult, Insight, TrafficWindow, FlowRecord } from '@/lib/api';
+import { useSelectedSession } from '@/lib/SessionContext';
 import AnomalyTable from '@/components/AnomalyTable';
 import InsightsPanel from '@/components/InsightsPanel';
 
@@ -10,6 +11,7 @@ export default function SessionDetailPage() {
     const params = useParams();
     const router = useRouter();
     const sessionId = params.sessionId as string;
+    const { setSelectedSessionId } = useSelectedSession();
 
     const [session, setSession] = useState<Session | null>(null);
     const [results, setResults] = useState<AnomalyResult[]>([]);
@@ -20,6 +22,10 @@ export default function SessionDetailPage() {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'overview' | 'results' | 'insights'>('overview');
     const [mode, setMode] = useState<'technical' | 'beginner'>('technical');
+
+    useEffect(() => {
+        setSelectedSessionId(sessionId);
+    }, [sessionId, setSelectedSessionId]);
 
     const loadSessionData = useCallback(async () => {
         try {
@@ -380,70 +386,53 @@ export default function SessionDetailPage() {
                             </div>
                         </div>
                         {protocolSeries ? (
-                        <div className="mt-6">
-                            <div className="flex items-center justify-center gap-12">
-                                <div className="relative w-32 h-32">
-                                    <svg viewBox="0 0 120 120" className="w-full h-full drop-shadow-lg">
-                                        <circle cx="60" cy="60" r="50" fill="none" stroke="#27272a" strokeWidth="18" />
-                                        <circle
-                                            cx="60" cy="60" r="50" fill="none" stroke="url(#tcpGradient)"
-                                            strokeWidth="16" strokeDasharray={`${(tcpHeight / 100) * 314}, 314`}
-                                            strokeLinecap="round" transform="rotate(-90 60 60)"
-                                        />
-                                        <circle
-                                            cx="60" cy="60" r="50" fill="none" stroke="url(#udpGradient)"
-                                            strokeWidth="16" strokeDasharray={`${(udpHeight / 100) * 314}, 314`}
-                                            strokeDashoffset={-((tcpHeight / 100) * 314)} strokeLinecap="round" transform="rotate(-90 60 60)"
-                                        />
-                                        <circle
-                                            cx="60" cy="60" r="50" fill="none" stroke="url(#icmpGradient)"
-                                            strokeWidth="16" strokeDasharray={`${(icmpHeight / 100) * 314}, 314`}
-                                            strokeDashoffset={-((tcpHeight + udpHeight) / 100) * 314} strokeLinecap="round" transform="rotate(-90 60 60)"
-                                        />
-                                        <defs>
-                                            <linearGradient id="tcpGradient"><stop offset="0%" stopColor="#06b6d4" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
-                                            <linearGradient id="udpGradient"><stop offset="0%" stopColor="#14b8a6" /><stop offset="100%" stopColor="#0d9488" /></linearGradient>
-                                            <linearGradient id="icmpGradient"><stop offset="0%" stopColor="#f59e0b" /><stop offset="100%" stopColor="#d97706" /></linearGradient>
-                                        </defs>
-                                    </svg>
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        <div className="text-center">
-                                            <div className="text-2xl font-bold text-zinc-100">100%</div>
-                                            <div className="text-xs text-zinc-500">Total</div>
-                                        </div>
+                        <div className="mt-6 flex flex-col items-center">
+                            <div className="relative w-48 h-48">
+                                <svg viewBox="0 0 120 120" className="w-full h-full drop-shadow-lg">
+                                    <circle cx="60" cy="60" r="50" fill="none" stroke="#27272a" strokeWidth="18" />
+                                    <circle
+                                        cx="60" cy="60" r="50" fill="none" stroke="url(#tcpGradient)"
+                                        strokeWidth="16" strokeDasharray={`${(tcpHeight / 100) * 314}, 314`}
+                                        strokeLinecap="round" transform="rotate(-90 60 60)"
+                                    />
+                                    <circle
+                                        cx="60" cy="60" r="50" fill="none" stroke="url(#udpGradient)"
+                                        strokeWidth="16" strokeDasharray={`${(udpHeight / 100) * 314}, 314`}
+                                        strokeDashoffset={-((tcpHeight / 100) * 314)} strokeLinecap="round" transform="rotate(-90 60 60)"
+                                    />
+                                    <circle
+                                        cx="60" cy="60" r="50" fill="none" stroke="url(#icmpGradient)"
+                                        strokeWidth="16" strokeDasharray={`${(icmpHeight / 100) * 314}, 314`}
+                                        strokeDashoffset={-((tcpHeight + udpHeight) / 100) * 314} strokeLinecap="round" transform="rotate(-90 60 60)"
+                                    />
+                                    <defs>
+                                        <linearGradient id="tcpGradient"><stop offset="0%" stopColor="#06b6d4" /><stop offset="100%" stopColor="#0891b2" /></linearGradient>
+                                        <linearGradient id="udpGradient"><stop offset="0%" stopColor="#14b8a6" /><stop offset="100%" stopColor="#0d9488" /></linearGradient>
+                                        <linearGradient id="icmpGradient"><stop offset="0%" stopColor="#f59e0b" /><stop offset="100%" stopColor="#d97706" /></linearGradient>
+                                    </defs>
+                                </svg>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="text-center">
+                                        <div className="text-3xl font-bold text-zinc-100">100%</div>
+                                        <div className="text-xs text-zinc-500">Total</div>
                                     </div>
                                 </div>
-                                <div className="space-y-3">
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-linear-to-br from-cyan-400 to-cyan-600"></div>
-                                            <span className="text-sm text-zinc-300 font-medium">TCP</span>
-                                            <span className="text-sm font-bold text-cyan-400 ml-auto">{tcpHeight}%</span>
-                                        </div>
-                                        <div className="w-48 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                            <div className="h-full bg-linear-to-r from-cyan-400 to-cyan-600 rounded-full" style={{ width: `${tcpHeight}%` }}></div>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-linear-to-br from-teal-400 to-teal-600"></div>
-                                            <span className="text-sm text-zinc-300 font-medium">UDP</span>
-                                            <span className="text-sm font-bold text-teal-400 ml-auto">{udpHeight}%</span>
-                                        </div>
-                                        <div className="w-48 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                            <div className="h-full bg-linear-to-r from-teal-400 to-teal-600 rounded-full" style={{ width: `${udpHeight}%` }}></div>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-3 h-3 rounded-full bg-linear-to-br from-amber-400 to-amber-600"></div>
-                                            <span className="text-sm text-zinc-300 font-medium">ICMP</span>
-                                            <span className="text-sm font-bold text-amber-400 ml-auto">{icmpHeight}%</span>
-                                        </div>
-                                        <div className="w-48 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                            <div className="h-full bg-linear-to-r from-amber-400 to-amber-600 rounded-full" style={{ width: `${icmpHeight}%` }}></div>
-                                        </div>
-                                    </div>
+                            </div>
+                            <div className="mt-6 w-full space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-linear-to-br from-cyan-400 to-cyan-600"></div>
+                                    <span className="text-sm text-zinc-300 font-medium">TCP</span>
+                                    <span className="text-sm font-bold text-cyan-400">{tcpHeight}%</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-linear-to-br from-teal-400 to-teal-600"></div>
+                                    <span className="text-sm text-zinc-300 font-medium">UDP</span>
+                                    <span className="text-sm font-bold text-teal-400">{udpHeight}%</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-linear-to-br from-amber-400 to-amber-600"></div>
+                                    <span className="text-sm text-zinc-300 font-medium">ICMP</span>
+                                    <span className="text-sm font-bold text-amber-400">{icmpHeight}%</span>
                                 </div>
                             </div>
                         </div>

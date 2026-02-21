@@ -3,6 +3,7 @@ import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import SideNav from "@/components/SideNav";
 import RootErrorBoundary from "@/components/RootErrorBoundary";
+import { SessionProvider } from "@/lib/SessionContext";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -28,16 +29,18 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} font-sans antialiased`}>
         <RootErrorBoundary>
-          <div className="min-h-screen bg-[#0b0f13] text-zinc-100">
-            <div className="flex min-h-screen">
-              <SideNav />
-              <div className="flex-1">
-                <main className="px-6 py-6 lg:px-10 lg:py-8">
-                  {children}
-                </main>
+          <SessionProvider>
+            <div className="min-h-screen bg-[#0b0f13] text-zinc-100">
+              <div className="flex min-h-screen">
+                <SideNav />
+                <div className="flex-1">
+                  <main className="px-6 py-6 lg:px-10 lg:py-8">
+                    {children}
+                  </main>
+                </div>
               </div>
             </div>
-          </div>
+          </SessionProvider>
         </RootErrorBoundary>
       </body>
     </html>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useLatestSessionData } from '@/lib/useLatestSessionData';
+import { useSearchParams } from 'next/navigation';
+import { useSessionData } from '@/lib/useSessionData';
 import Pagination from '@/components/Pagination';
 
 interface FlowData {
@@ -28,7 +29,9 @@ interface SuspiciousPattern {
 }
 
 export default function ProtocolFlowPage() {
-  const { session, results, trafficWindows, flows, portStats, loading, error } = useLatestSessionData();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get('sessionId');
+  const { session, results, trafficWindows, flows, portStats, loading, error } = useSessionData(sessionId);
   const [flowsPage, setFlowsPage] = useState(1);
   const [portsPage, setPortsPage] = useState(1);
   const flowsPerPage = 4;
