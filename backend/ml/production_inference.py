@@ -6,8 +6,64 @@ import json
 import sys
 from pathlib import Path
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def calculate_contributing_features(df_features, predictions, scores, top_n=5):
+    """
+    Calculate which features contributed most to each anomaly detection.
+    For Isolation Forest, we use feature deviation from median as a proxy for contribution.
+    
+    Parameters:
+        df_features (DataFrame): Engineered features used for prediction
+        predictions (array): Anomaly predictions (-1 for anomaly, 1 for normal)
+        scores (array): Anomaly scores (lower = more anomalous)
+        top_n (int): Number of top contributing features to return
+        
+    Returns:
+        list: List of dicts with contributing features for each sample
+    """
+    import pandas as pd
+    
+    # Calculate feature medians and MADs (Median Absolute Deviation)
+    medians = df_features.median()
+    mads = (df_features - medians).abs().median()
+    
+    contributing_features_list = []
+    
+    for idx in range(len(df_features)):
+        if predictions[idx] == -1:  # Only for anomalies
+            # Calculate deviation from median for each feature
+            deviations = {}
+            for col in df_features.columns:
+                value = df_features.iloc[idx][col]
+                median = medians[col]
+                mad = mads[col] if mads[col] > 0 else 1
+                # Normalized deviation
+                deviation = abs(value - median) / mad
+                deviations[col] = deviation
+            
+            # Sort by deviation and take top N
+            top_features = sorted(deviations.items(), key=lambda x: x[1], reverse=True)[:top_n]
+            
+            # Normalize to percentages that sum to ~100
+            total_deviation = sum(dev for _, dev in top_features)
+            if total_deviation > 0:
+                contributing_features = {
+                    feat: round((dev / total_deviation) * 100, 1) 
+                    for feat, dev in top_features
+                }
+            else:
+                contributing_features = {}
+            
+            contributing_features_list.append(contributing_features)
+        else:
+            # Not an anomaly
+            contributing_features_list.append({})
+    
+    return contributing_features_list
 
 
 def predict_with_feature_engineering(pcap_features_json, model_path=None):
@@ -46,11 +102,14 @@ def predict_with_feature_engineering(pcap_features_json, model_path=None):
     
     # Feature engineering (same as training)
     df_engineered = clean_and_engineer_features(df_raw)
-    df_features = select_features(df_engineered)
+    
+    # Load model so we can align to its required feature list when available
+    predictor = AnomalyPredictor(model_path)
+    feature_list = predictor.feature_names if getattr(predictor, "feature_names", None) else None
+    df_features = select_features(df_engineered, feature_list)
     logger.info(f"Feature engineering complete: {df_features.shape}")
     
-    # Load model and predict
-    predictor = AnomalyPredictor(model_path)
+    # Predict using only model-required fields
     results = predictor.predict_from_features(df_features)
     
     # Add metadata
@@ -63,6 +122,14 @@ def predict_with_feature_engineering(pcap_features_json, model_path=None):
     df_results['anomaly'] = results['predictions']
     df_results['anomaly_score'] = results['scores']
     df_results['is_anomaly'] = df_results['anomaly'] == -1
+    
+    # Calculate contributing features for each sample
+    contributing_features_list = calculate_contributing_features(
+        df_features, 
+        results['predictions'], 
+        results['scores']
+    )
+    df_results['contributing_features'] = contributing_features_list
     
     results['detailed_results'] = df_results
     

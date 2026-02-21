@@ -12,12 +12,17 @@ from backend.insight.generator import InsightGenerator
 from backend.ml.production_inference import predict_with_feature_engineering
 from backend.storage.repository import (
 	create_anomaly_result,
+	create_flow,
 	create_insight,
 	create_pcap_session,
+	create_port_stat,
 	create_traffic_window,
 	list_anomaly_results,
+	list_flows,
 	list_insights,
+	list_port_stats,
 	list_pcap_sessions,
+	list_traffic_windows,
 	update_pcap_session,
 )
 import json
@@ -70,6 +75,37 @@ def _process_session(session_id: str, saved_path: Path) -> None:
 					record,
 				)
 			)
+
+			for flow in record.get("top_flows") or []:
+				create_flow(
+					{
+						"session_id": session_id,
+						"window_id": window_id,
+						"src_ip": flow.get("src_ip"),
+						"dst_ip": flow.get("dst_ip"),
+						"src_port": flow.get("src_port"),
+						"dst_port": flow.get("dst_port"),
+						"protocol": flow.get("protocol"),
+						"packet_count": flow.get("packet_count"),
+						"total_bytes": flow.get("total_bytes"),
+						"duration_seconds": flow.get("duration_seconds"),
+						"start_timestamp": flow.get("start_timestamp"),
+						"end_timestamp": flow.get("end_timestamp"),
+					}
+				)
+
+			for port_stat in record.get("port_stats") or []:
+				create_port_stat(
+					{
+						"session_id": session_id,
+						"window_id": window_id,
+						"port": port_stat.get("port"),
+						"protocol": port_stat.get("protocol"),
+						"service_name": port_stat.get("service_name"),
+						"packet_count": port_stat.get("packet_count"),
+						"total_bytes": port_stat.get("total_bytes"),
+					}
+				)
 
 		insight_generator = InsightGenerator(max_alerts=5)
 		insight_report = insight_generator.generate(records)
@@ -163,6 +199,15 @@ def _build_traffic_window_data(
         "port_diversity": record.get("port_diversity"),
         "avg_inter_arrival_time": record.get("avg_inter_arrival_time"),
         "connection_rate": record.get("connection_rate"),
+        # Phase 2: TCP Health Metrics
+        "tcp_syn_count": record.get("tcp_syn_count"),
+        "tcp_ack_count": record.get("tcp_ack_count"),
+        "tcp_rst_count": record.get("tcp_rst_count"),
+        "tcp_fin_count": record.get("tcp_fin_count"),
+        "tcp_retransmissions": record.get("tcp_retransmissions"),
+        # Phase 2: Distribution Histograms (already JSON from Rust)
+        "packet_size_distribution": json.dumps(record.get("packet_size_distribution")) if record.get("packet_size_distribution") else None,
+        "flow_duration_distribution": json.dumps(record.get("flow_duration_distribution")) if record.get("flow_duration_distribution") else None,
         "features_json": json.dumps(record),  # ← serialize dict to JSON string
     }
 
@@ -236,3 +281,18 @@ def get_results(session_id: str, is_anomaly: Optional[bool] = None) -> List[Dict
 @router.get("/insights/{session_id}")
 def get_insights(session_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
 	return list_insights(session_id=session_id, status=status, limit=10000, offset=0)
+
+
+@router.get("/traffic-windows/{session_id}")
+def get_traffic_windows(session_id: str) -> List[Dict[str, Any]]:
+	return list_traffic_windows(session_id=session_id, limit=10000, offset=0)
+
+
+@router.get("/flows/{session_id}")
+def get_flows(session_id: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+	return list_flows(session_id=session_id, limit=limit, offset=offset)
+
+
+@router.get("/port-stats/{session_id}")
+def get_port_stats(session_id: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+	return list_port_stats(session_id=session_id, limit=limit, offset=offset)

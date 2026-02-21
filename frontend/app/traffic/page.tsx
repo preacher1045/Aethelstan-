@@ -3,22 +3,90 @@
 import { useMemo } from 'react';
 import { useLatestSessionData } from '@/lib/useLatestSessionData';
 
+type HistogramData = {
+  values: number[];
+  max: number;
+  labels: string[];
+};
+
 export default function TrafficAnalysisPage() {
-  const { session, results, loading, error } = useLatestSessionData();
+  const { session, results, trafficWindows, loading, error } = useLatestSessionData();
 
-  const flowHistogram = useMemo(() => {
-    const base = results.length > 0 ? results.slice(0, 12).map((r, i) => 20 + (r.anomaly_score ?? 0.2) * 80 + i * 3) : [];
-    return base.length > 0 ? base : Array.from({ length: 12 }).map((_, i) => 20 + (i % 6) * 10);
-  }, [results]);
+  const flowHistogram = useMemo<HistogramData | null>(() => {
+    if (trafficWindows.length === 0) {
+      return null;
+    }
 
-  const packetHistogram = useMemo(() => {
-    const base = results.length > 0 ? results.slice(0, 10).map((r, i) => 25 + (r.anomaly_score ?? 0.2) * 70 + i * 4) : [];
-    return base.length > 0 ? base : Array.from({ length: 10 }).map((_, i) => 25 + (i % 5) * 12);
-  }, [results]);
+    // Aggregate flow duration distribution across all windows
+    const bucketKeys = ["0-5", "5-10", "10-20", "20-30", "30+"] as const;
+    const aggregated = { "0-5": 0, "5-10": 0, "10-20": 0, "20-30": 0, "30+": 0 };
+
+    trafficWindows.forEach(w => {
+      if (w.flow_duration_distribution) {
+        try {
+          const dist = typeof w.flow_duration_distribution === 'string' 
+            ? JSON.parse(w.flow_duration_distribution)
+            : w.flow_duration_distribution;
+
+          bucketKeys.forEach(key => {
+            aggregated[key] += dist[key] || 0;
+          });
+        } catch (e) {
+          console.error('Failed to parse flow_duration_distribution:', e);
+        }
+      }
+    });
+
+    const values = bucketKeys.map(key => aggregated[key]);
+    const max = Math.max(...values, 1);
+    const labels = ["0-5s", "5-10s", "10-20s", "20-30s", "30s+"];
+    return { values, max, labels };
+  }, [trafficWindows]);
+
+  const packetHistogram = useMemo<HistogramData | null>(() => {
+    if (trafficWindows.length === 0) {
+      return null;
+    }
+
+    // Aggregate packet size distribution across all windows
+    const bucketKeys = ["64", "128", "256", "512", "1024", "1500"] as const;
+    const aggregated = { "64": 0, "128": 0, "256": 0, "512": 0, "1024": 0, "1500": 0 };
+
+    trafficWindows.forEach(w => {
+      if (w.packet_size_distribution) {
+        try {
+          const dist = typeof w.packet_size_distribution === 'string' 
+            ? JSON.parse(w.packet_size_distribution)
+            : w.packet_size_distribution;
+
+          bucketKeys.forEach(key => {
+            aggregated[key] += dist[key] || 0;
+          });
+        } catch (e) {
+          console.error('Failed to parse packet_size_distribution:', e);
+        }
+      }
+    });
+
+    const values = bucketKeys.map(key => aggregated[key]);
+    const max = Math.max(...values, 1);
+    const labels = ["<=64B", "<=128B", "<=256B", "<=512B", "<=1024B", ">1024B"];
+    return { values, max, labels };
+  }, [trafficWindows]);
+
+  const heatmapData = useMemo<number[] | null>(() => {
+    if (trafficWindows.length === 0) {
+      return null;
+    }
+    // Map bytes_per_sec to heatmap intensities (normalize to 0-1 range)
+    const throughputs = trafficWindows.map(w => w.bytes_per_sec ?? 0);
+    const maxThroughput = Math.max(...throughputs, 1);
+    return throughputs.map(t => t / maxThroughput);
+  }, [trafficWindows]);
 
   const burstEvents = useMemo(() => {
     if (results.length === 0) {
-      return ['Spike at 14:03', 'Spike at 19:22', 'Spike at 23:48'];
+      return [];
     }
     return results
       .filter((item) => item.is_anomaly)
@@ -48,35 +116,43 @@ export default function TrafficAnalysisPage() {
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Flow Duration Histogram</h3>
           <p className="text-xs text-zinc-500 mt-1">Short-lived vs long-lived flows</p>
+          {flowHistogram ? (
           <div className="mt-4 rounded-lg bg-zinc-950 border border-zinc-800 p-5">
             <div className="relative h-56">
               <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between text-[10px] text-zinc-500">
-                <span>1.2k</span>
-                <span>900</span>
-                <span>600</span>
-                <span>300</span>
-                <span>0</span>
+                {[1, 0.75, 0.5, 0.25, 0].map((pct) => (
+                  <span key={pct}>{Math.round(flowHistogram.max * pct).toLocaleString()}</span>
+                ))}
               </div>
               <div className="absolute -left-2 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] text-zinc-500">
                 Count
               </div>
               <div className="ml-14 h-full pb-8 border-l border-b border-zinc-700 relative">
                 <div className="absolute inset-0 flex items-end gap-2 px-4 pb-4">
-                  {flowHistogram.map((value, i) => (
-                    <div key={i} className="w-4 bg-cyan-400/70 rounded-t" style={{ height: `${Math.min(100, value)}%` }}></div>
+                  {flowHistogram.values.map((value, i) => (
+                    <div
+                      key={flowHistogram.labels[i]}
+                      className="w-4 bg-cyan-400/70 rounded-t"
+                      style={{ height: `${Math.min(100, (value / Math.max(flowHistogram.max, 1)) * 100)}%` }}
+                      title={`${flowHistogram.labels[i]}: ${value.toLocaleString()} flows`}
+                    />
                   ))}
                 </div>
               </div>
               <div className="ml-14 mt-3 grid grid-cols-5 text-[9px] text-zinc-500 text-center px-2">
-                <span>0s</span>
-                <span>10s</span>
-                <span>20s</span>
-                <span>30s</span>
-                <span>40s</span>
+                {flowHistogram.labels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
               </div>
               <div className="ml-14 text-center text-[10px] text-zinc-500">Flow Duration</div>
             </div>
           </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No flow duration data available</p>
+            <p className="text-zinc-600 text-xs mt-1">Traffic window metrics required</p>
+          </div>
+          )}
           <p className="text-xs text-zinc-400 mt-3">
             High variance in flow duration often points to automated scanning or mixed workloads.
           </p>
@@ -85,35 +161,43 @@ export default function TrafficAnalysisPage() {
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Packet Size Distribution</h3>
           <p className="text-xs text-zinc-500 mt-1">Min / mean / max packet sizes</p>
+          {packetHistogram ? (
           <div className="mt-4 rounded-lg bg-zinc-950 border border-zinc-800 p-5">
             <div className="relative h-56">
               <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between text-[10px] text-zinc-500">
-                <span>1.5k</span>
-                <span>1.0k</span>
-                <span>750</span>
-                <span>500</span>
-                <span>0</span>
+                {[1, 0.75, 0.5, 0.25, 0].map((pct) => (
+                  <span key={pct}>{Math.round(packetHistogram.max * pct).toLocaleString()}</span>
+                ))}
               </div>
               <div className="absolute -left-2 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] text-zinc-500">
                 Count
               </div>
               <div className="ml-14 h-full pb-8 border-l border-b border-zinc-700 relative">
                 <div className="absolute inset-0 flex items-end gap-2 px-4 pb-4">
-                  {packetHistogram.map((value, i) => (
-                    <div key={i} className="w-5 bg-teal-400/70 rounded-t" style={{ height: `${Math.min(100, value)}%` }}></div>
+                  {packetHistogram.values.map((value, i) => (
+                    <div
+                      key={packetHistogram.labels[i]}
+                      className="w-5 bg-teal-400/70 rounded-t"
+                      style={{ height: `${Math.min(100, (value / Math.max(packetHistogram.max, 1)) * 100)}%` }}
+                      title={`${packetHistogram.labels[i]}: ${value.toLocaleString()} packets`}
+                    />
                   ))}
                 </div>
               </div>
               <div className="ml-14 mt-3 grid grid-cols-5 text-[9px] text-zinc-500 text-center px-2">
-                <span>64B</span>
-                <span>512B</span>
-                <span>1KB</span>
-                <span>1.5KB</span>
-                <span>2KB</span>
+                {packetHistogram.labels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
               </div>
               <div className="ml-14 text-center text-[10px] text-zinc-500">Packet Size</div>
             </div>
           </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No packet size data available</p>
+            <p className="text-zinc-600 text-xs mt-1">Traffic window metrics required</p>
+          </div>
+          )}
           <p className="text-xs text-zinc-400 mt-3">
             High variance in packet size often indicates mixed application traffic or tunneling.
           </p>
@@ -121,62 +205,49 @@ export default function TrafficAnalysisPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
+        <div className="lg:col-span-3 bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Throughput Heatmap</h3>
           <p className="text-xs text-zinc-500 mt-1">Time vs volume intensity</p>
+          {heatmapData ? (
           <div className="mt-4 rounded-lg bg-zinc-950 border border-zinc-800 p-5">
-            <div className="relative">
-              <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between text-[10px] text-zinc-500">
-                <span>High</span>
-                <span>Med</span>
-                <span>Low</span>
-              </div>
-              <div className="absolute -left-2 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] text-zinc-500">
-                Volume
-              </div>
-              <div className="ml-14 pb-8 border-l border-b border-zinc-700">
-                <div className="grid grid-cols-12 gap-1">
-                  {Array.from({ length: 96 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-full h-6 rounded bg-cyan-500/20"
-                      style={{ opacity: 0.2 + (i % 8) * 0.1 }}
-                    ></div>
-                  ))}
-                </div>
-              </div>
-              <div className="ml-14 mt-3 grid grid-cols-5 text-[9px] text-zinc-500 text-center px-2">
-                <span>00:00</span>
-                <span>06:00</span>
-                <span>12:00</span>
-                <span>18:00</span>
-                <span>24:00</span>
-              </div>
-              <div className="ml-14 text-center text-[10px] text-zinc-500">Time</div>
+            <div className="grid grid-cols-24 gap-1">
+              {heatmapData.map((intensity, idx) => {
+                const hue = 200 - (intensity * 80); // Blue (200) to cyan (120)
+                const saturation = 70 + (intensity * 30); // 70% to 100%
+                const lightness = 30 + (intensity * 40); // 30% to 70%
+                return (
+                  <div
+                    key={idx}
+                    className="aspect-square rounded"
+                    style={{
+                      backgroundColor: `hsl(${hue}, ${saturation}%, ${lightness}%)`,
+                    }}
+                    title={`Window ${idx + 1}: ${(intensity * 100).toFixed(1)}% of max throughput`}
+                  />
+                );
+              })}
+            </div>
+            <div className="mt-3 flex items-center gap-3 text-xs text-zinc-500">
+              <span>Low</span>
+              <div className="flex-1 h-3 rounded" style={{
+                background: 'linear-gradient(to right, hsl(200, 70%, 30%), hsl(180, 85%, 50%), hsl(120, 100%, 70%))'
+              }}></div>
+              <span>High</span>
             </div>
           </div>
-        </div>
-
-        <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-zinc-100">Inbound vs Outbound</h3>
-          <p className="text-xs text-zinc-500 mt-1">Directional traffic ratio</p>
-          <div className="mt-6 flex items-center justify-center">
-            <div className="w-32 h-32 rounded-full border-8 border-cyan-500/30 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-xl font-bold text-cyan-300">62%</div>
-                <div className="text-xs text-zinc-500">Inbound</div>
-              </div>
-            </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No throughput heatmap data available</p>
+            <p className="text-zinc-600 text-xs mt-1">Traffic window time-series data required</p>
           </div>
-          <p className="text-xs text-zinc-400 mt-4">
-            Bursty outbound traffic may signal data exfiltration or misconfigured services.
-          </p>
+          )}
         </div>
       </div>
 
       <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-zinc-100">Bursty Traffic Detector</h3>
         <p className="text-xs text-zinc-500 mt-1">Automated detection of sudden traffic spikes</p>
+        {burstEvents.length > 0 ? (
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
           {burstEvents.map((event) => (
             <div key={event} className="bg-zinc-950 border border-zinc-800 rounded-lg p-4">
@@ -186,6 +257,12 @@ export default function TrafficAnalysisPage() {
             </div>
           ))}
         </div>
+        ) : (
+        <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+          <p className="text-zinc-500 text-sm">No burst events detected</p>
+          <p className="text-zinc-600 text-xs mt-1">Analyze traffic to detect anomalous spikes</p>
+        </div>
+        )}
       </div>
     </div>
   );

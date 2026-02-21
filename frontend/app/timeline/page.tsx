@@ -4,34 +4,33 @@ import { useMemo } from 'react';
 import { useLatestSessionData } from '@/lib/useLatestSessionData';
 
 export default function TimelinePage() {
-  const { results, insights, loading, error } = useLatestSessionData();
+  const { results, insights, trafficWindows, loading, error } = useLatestSessionData();
 
   const eventMarkers = useMemo(() => {
-    if (results.length === 0) {
-      return ['Anomaly burst at 14:07', 'Throughput spike at 18:22', 'High entropy at 22:11'];
+    if (insights.length === 0) {
+      return [];
     }
-    return results
-      .filter((item) => item.is_anomaly)
-      .slice(0, 3)
-      .map((item) => `Anomaly window #${item.window_id ?? 0}`);
-  }, [results]);
+    return insights
+      .filter((i) => i.insight_type === 'alert')
+      .map((i) => ({
+        timestamp: new Date(i.created_at).toLocaleTimeString(),
+        event_type: i.alert_type ?? 'Unknown',
+        description: i.summary,
+        severity: i.severity ?? 'medium',
+      }));
+  }, [insights]);
 
   const windowStats = useMemo(() => {
-    if (results.length === 0) {
-      return Array.from({ length: 5 }).map((_, i) => ({
-        window: i + 1,
-        packets: 2400 + i * 120,
-        bytes: `${(1.8 + i * 0.3).toFixed(1)} MB`,
-        anomaly: i % 2 === 0 ? 'Yes' : 'No',
-      }));
+    if (trafficWindows.length === 0) {
+      return [];
     }
-    return results.slice(0, 5).map((item, i) => ({
-      window: item.window_id ?? i + 1,
-      packets: 2200 + i * 150,
-      bytes: `${(1.6 + i * 0.25).toFixed(1)} MB`,
-      anomaly: item.is_anomaly ? 'Yes' : 'No',
+    return trafficWindows.slice(0, 10).map((window) => ({
+      window: window.window_id,
+      packets: window.packet_count?.toLocaleString() ?? 'N/A',
+      bytes: window.total_bytes ? `${(window.total_bytes / 1024 / 1024).toFixed(2)} MB` : 'N/A',
+      anomaly: results.find(r => r.window_id === window.window_id)?.is_anomaly ? 'Yes' : 'No',
     }));
-  }, [results]);
+  }, [trafficWindows, results]);
   return (
     <div className="space-y-6">
       <div>
@@ -54,18 +53,8 @@ export default function TimelinePage() {
       <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-zinc-100">Interactive Timeline Scrubber</h3>
         <p className="text-xs text-zinc-500 mt-1">Hover over spikes to inspect anomalies</p>
-        <div className="mt-4 h-16 rounded-lg bg-zinc-950 border border-zinc-800 relative">
-          <div className="absolute inset-0 flex items-center px-4">
-            <div className="w-full h-2 bg-zinc-800 rounded-full relative">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute top-1/2 w-3 h-3 bg-red-500 rounded-full"
-                  style={{ left: `${10 + i * 14}%`, transform: 'translate(-50%, -50%)' }}
-                ></div>
-              ))}
-            </div>
-          </div>
+        <div className="mt-4 h-16 rounded-lg border border-zinc-700/50 flex items-center justify-center">
+          <p className="text-zinc-500 text-sm">No timeline data available</p>
         </div>
         <div className="mt-3 flex justify-between text-xs text-zinc-500">
           <span>00:00</span>
@@ -79,21 +68,37 @@ export default function TimelinePage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Event Markers</h3>
+          {eventMarkers.length > 0 ? (
           <div className="mt-4 space-y-3">
-            {eventMarkers.map((event) => (
-              <div key={event} className="flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-lg p-4">
-                <span className="text-red-400">●</span>
-                <div>
-                  <div className="text-sm text-zinc-200">{event}</div>
-                  <div className="text-xs text-zinc-500">Tagged for forensic review</div>
+            {eventMarkers.map((event, idx) => {
+              const severityColor = event.severity === 'high' ? 'text-red-400' : 
+                                   event.severity === 'medium' ? 'text-amber-400' : 'text-yellow-400';
+              return (
+                <div key={`${event.timestamp}-${idx}`} className="flex items-start gap-3 bg-zinc-950 border border-zinc-800 rounded-lg p-4">
+                  <span className={severityColor}>●</span>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-zinc-200 font-medium">{event.event_type}</div>
+                      <div className="text-xs text-zinc-500">{event.timestamp}</div>
+                    </div>
+                    <div className="text-xs text-zinc-400 mt-1">{event.description}</div>
+                    <div className="text-xs text-zinc-600 mt-1">Severity: {event.severity}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No event markers available</p>
+            <p className="text-zinc-600 text-xs mt-1">Anomaly detection required</p>
+          </div>
+          )}
         </div>
 
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Time-Window Statistics</h3>
+          {windowStats.length > 0 ? (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-zinc-500 uppercase border-b border-zinc-800">
@@ -116,6 +121,12 @@ export default function TimelinePage() {
               </tbody>
             </table>
           </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No window statistics available</p>
+            <p className="text-zinc-600 text-xs mt-1">Traffic analysis required</p>
+          </div>
+          )}
         </div>
       </div>
 

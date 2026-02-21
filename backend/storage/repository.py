@@ -173,6 +173,54 @@ def delete_traffic_window(window_id: int) -> Optional[Dict[str, Any]]:
 
 
 # -------------------------------------------------------------------
+# Flows (Top Flows)
+# -------------------------------------------------------------------
+def create_flow(data: Dict[str, Any]) -> Dict[str, Any]:
+	return _insert_row("flows", data)
+
+
+def list_flows(
+	session_id: Optional[str] = None, limit: int = 100, offset: int = 0
+) -> List[Dict[str, Any]]:
+	params: Dict[str, Any] = {"limit": limit, "offset": offset}
+	where_clause = sql.SQL("")
+	if session_id:
+		where_clause = sql.SQL("WHERE session_id = {session_id}").format(
+			session_id=sql.Placeholder("session_id")
+		)
+		params["session_id"] = session_id
+
+	query = sql.SQL(
+		"SELECT * FROM flows {where} ORDER BY total_bytes DESC LIMIT {limit} OFFSET {offset}"
+	).format(where=where_clause, limit=sql.Placeholder("limit"), offset=sql.Placeholder("offset"))
+	return _fetch_all(query, params)
+
+
+# -------------------------------------------------------------------
+# Port Stats (Port Usage Distribution)
+# -------------------------------------------------------------------
+def create_port_stat(data: Dict[str, Any]) -> Dict[str, Any]:
+	return _insert_row("port_stats", data)
+
+
+def list_port_stats(
+	session_id: Optional[str] = None, limit: int = 100, offset: int = 0
+) -> List[Dict[str, Any]]:
+	params: Dict[str, Any] = {"limit": limit, "offset": offset}
+	where_clause = sql.SQL("")
+	if session_id:
+		where_clause = sql.SQL("WHERE session_id = {session_id}").format(
+			session_id=sql.Placeholder("session_id")
+		)
+		params["session_id"] = session_id
+
+	query = sql.SQL(
+		"SELECT * FROM port_stats {where} ORDER BY total_bytes DESC LIMIT {limit} OFFSET {offset}"
+	).format(where=where_clause, limit=sql.Placeholder("limit"), offset=sql.Placeholder("offset"))
+	return _fetch_all(query, params)
+
+
+# -------------------------------------------------------------------
 # Anomaly Results
 # -------------------------------------------------------------------
 def create_anomaly_result(data: Dict[str, Any]) -> Dict[str, Any]:

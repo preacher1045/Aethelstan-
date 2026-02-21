@@ -1,9 +1,168 @@
 use pcap::Capture;
 use etherparse::PacketHeaders;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::fs::File;
 use std::net::{Ipv4Addr, Ipv6Addr};
+
+// --------------------------
+// Helper Functions
+// --------------------------
+
+/// Build packet size distribution histogram
+fn build_packet_size_histogram(packet_sizes: &[usize]) -> HashMap<String, usize> {
+    let mut histogram = HashMap::new();
+    histogram.insert("64".to_string(), 0);
+    histogram.insert("128".to_string(), 0);
+    histogram.insert("256".to_string(), 0);
+    histogram.insert("512".to_string(), 0);
+    histogram.insert("1024".to_string(), 0);
+    histogram.insert("1500".to_string(), 0);
+    
+    for &size in packet_sizes {
+        if size <= 64 {
+            *histogram.get_mut("64").unwrap() += 1;
+        } else if size <= 128 {
+            *histogram.get_mut("128").unwrap() += 1;
+        } else if size <= 256 {
+            *histogram.get_mut("256").unwrap() += 1;
+        } else if size <= 512 {
+            *histogram.get_mut("512").unwrap() += 1;
+        } else if size <= 1024 {
+            *histogram.get_mut("1024").unwrap() += 1;
+        } else {
+            *histogram.get_mut("1500").unwrap() += 1;
+        }
+    }
+    
+    histogram
+}
+
+type FlowKey = (String, u16, String, u16, String);
+type PortKey = (u16, String);
+
+#[derive(Clone)]
+struct FlowAgg {
+    packet_count: usize,
+    total_bytes: usize,
+    first_ts: f64,
+    last_ts: f64,
+}
+
+#[derive(Clone)]
+struct PortAgg {
+    packet_count: usize,
+    total_bytes: usize,
+}
+
+#[derive(Serialize, Clone)]
+struct FlowStat {
+    src_ip: String,
+    dst_ip: String,
+    src_port: u16,
+    dst_port: u16,
+    protocol: String,
+    packet_count: usize,
+    total_bytes: usize,
+    duration_seconds: f64,
+    start_timestamp: f64,
+    end_timestamp: f64,
+}
+
+#[derive(Serialize, Clone)]
+struct PortStat {
+    port: u16,
+    protocol: String,
+    service_name: String,
+    packet_count: usize,
+    total_bytes: usize,
+}
+
+fn service_name_for_port(port: u16) -> &'static str {
+    match port {
+        80 => "HTTP",
+        443 => "HTTPS",
+        53 => "DNS",
+        22 => "SSH",
+        25 => "SMTP",
+        110 => "POP3",
+        143 => "IMAP",
+        3389 => "RDP",
+        3306 => "MySQL",
+        5432 => "Postgres",
+        _ => "Unknown",
+    }
+}
+
+/// Build flow duration distribution histogram
+fn build_flow_duration_histogram(flow_stats: &HashMap<FlowKey, FlowAgg>) -> HashMap<String, usize> {
+    let mut histogram = HashMap::new();
+    histogram.insert("0-5".to_string(), 0);
+    histogram.insert("5-10".to_string(), 0);
+    histogram.insert("10-20".to_string(), 0);
+    histogram.insert("20-30".to_string(), 0);
+    histogram.insert("30+".to_string(), 0);
+    
+    for agg in flow_stats.values() {
+        let duration = (agg.last_ts - agg.first_ts).max(0.0);
+        
+        if duration <= 5.0 {
+            *histogram.get_mut("0-5").unwrap() += 1;
+        } else if duration <= 10.0 {
+            *histogram.get_mut("5-10").unwrap() += 1;
+        } else if duration <= 20.0 {
+            *histogram.get_mut("10-20").unwrap() += 1;
+        } else if duration <= 30.0 {
+            *histogram.get_mut("20-30").unwrap() += 1;
+        } else {
+            *histogram.get_mut("30+").unwrap() += 1;
+        }
+    }
+    
+    histogram
+}
+
+fn build_top_flows(flow_stats: &HashMap<FlowKey, FlowAgg>, limit: usize) -> Vec<FlowStat> {
+    let mut flows: Vec<FlowStat> = flow_stats
+        .iter()
+        .map(|(key, agg)| {
+            let duration_seconds = (agg.last_ts - agg.first_ts).max(0.0);
+            FlowStat {
+                src_ip: key.0.clone(),
+                src_port: key.1,
+                dst_ip: key.2.clone(),
+                dst_port: key.3,
+                protocol: key.4.clone(),
+                packet_count: agg.packet_count,
+                total_bytes: agg.total_bytes,
+                duration_seconds,
+                start_timestamp: agg.first_ts,
+                end_timestamp: agg.last_ts,
+            }
+        })
+        .collect();
+
+    flows.sort_by(|a, b| b.total_bytes.cmp(&a.total_bytes));
+    flows.truncate(limit);
+    flows
+}
+
+fn build_top_ports(port_stats: &HashMap<PortKey, PortAgg>, limit: usize) -> Vec<PortStat> {
+    let mut ports: Vec<PortStat> = port_stats
+        .iter()
+        .map(|(key, agg)| PortStat {
+            port: key.0,
+            protocol: key.1.clone(),
+            service_name: service_name_for_port(key.0).to_string(),
+            packet_count: agg.packet_count,
+            total_bytes: agg.total_bytes,
+        })
+        .collect();
+
+    ports.sort_by(|a, b| b.total_bytes.cmp(&a.total_bytes));
+    ports.truncate(limit);
+    ports
+}
 
 // --------------------------
 // Window Feature Structure
@@ -36,6 +195,18 @@ struct WindowFeature {
     avg_flow_bytes: f64,
     packets_per_sec: f64,
     bytes_per_sec: f64,
+    port_diversity: f64,
+    // Phase 2: TCP Health Metrics
+    tcp_syn_count: usize,
+    tcp_ack_count: usize,
+    tcp_rst_count: usize,
+    tcp_fin_count: usize,
+    tcp_retransmissions: usize,
+    // Phase 2: Distribution Histograms
+    packet_size_distribution: HashMap<String, usize>,
+    flow_duration_distribution: HashMap<String, usize>,
+    top_flows: Vec<FlowStat>,
+    port_stats: Vec<PortStat>,
 }
 
 // --------------------------
@@ -71,8 +242,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut packet_sizes: Vec<usize> = Vec::new();
     let mut unique_src_ips: HashSet<String> = HashSet::new();
     let mut unique_dst_ips: HashSet<String> = HashSet::new();
-    let mut flows: HashSet<(String, u16, String, u16, String)> = HashSet::new();
+    let mut flow_stats: HashMap<FlowKey, FlowAgg> = HashMap::new();
+    let mut port_stats: HashMap<PortKey, PortAgg> = HashMap::new();
     let mut window_features: Vec<WindowFeature> = Vec::new();
+    
+    // Phase 2: TCP Health Metrics counters
+    let mut tcp_syn_count = 0;
+    let mut tcp_ack_count = 0;
+    let mut tcp_rst_count = 0;
+    let mut tcp_fin_count = 0;
+    let mut tcp_retransmissions = 0; // Placeholder - proper detection requires seq tracking
+    
+    // Phase 2: Flow duration tracking (stored in flow_stats)
 
     while let Some(packet) = cap.next_packet().ok() {
         let ts = packet.header.ts;
@@ -103,12 +284,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let unique_src_ratio = if packet_count > 0 { unique_src_ips.len() as f64 / packet_count as f64 } else { 0.0 };
             let unique_dst_ratio = if packet_count > 0 { unique_dst_ips.len() as f64 / packet_count as f64 } else { 0.0 };
 
-            let flow_ratio = if packet_count > 0 { flows.len() as f64 / packet_count as f64 } else { 0.0 };
-            let avg_flow_packets = if flows.len() > 0 { packet_count as f64 / flows.len() as f64 } else { 0.0 };
-            let avg_flow_bytes = if flows.len() > 0 { total_bytes as f64 / flows.len() as f64 } else { 0.0 };
+            let flow_count = flow_stats.len();
+            let flow_ratio = if packet_count > 0 { flow_count as f64 / packet_count as f64 } else { 0.0 };
+            let avg_flow_packets = if flow_count > 0 { packet_count as f64 / flow_count as f64 } else { 0.0 };
+            let avg_flow_bytes = if flow_count > 0 { total_bytes as f64 / flow_count as f64 } else { 0.0 };
 
             let packets_per_sec = packet_count as f64 / window_size;
-            let bytes_per_sec = total_bytes as f64 * 8.0 / window_size; // bits/sec
+            let bytes_per_sec = total_bytes as f64 / window_size; // bytes/sec
+
+            let port_diversity = port_stats.len() as f64;
+
+            // Phase 2: Build histograms
+            let packet_size_distribution = build_packet_size_histogram(&packet_sizes);
+            let flow_duration_distribution = build_flow_duration_histogram(&flow_stats);
+            let top_flows = build_top_flows(&flow_stats, 10);
+            let top_ports = build_top_ports(&port_stats, 10);
 
             let window = WindowFeature {
                 window_start: window_start.unwrap(),
@@ -131,12 +321,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 unique_dst_ips: unique_dst_ips.len(),
                 unique_src_ratio,
                 unique_dst_ratio,
-                flow_count: flows.len(),
+                flow_count,
                 flow_ratio,
                 avg_flow_packets,
                 avg_flow_bytes,
                 packets_per_sec,
                 bytes_per_sec,
+                port_diversity,
+                tcp_syn_count,
+                tcp_ack_count,
+                tcp_rst_count,
+                tcp_fin_count,
+                tcp_retransmissions,
+                packet_size_distribution,
+                flow_duration_distribution,
+                top_flows,
+                port_stats: top_ports,
             };
             window_features.push(window);
 
@@ -150,7 +350,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             packet_sizes.clear();
             unique_src_ips.clear();
             unique_dst_ips.clear();
-            flows.clear();
+            flow_stats.clear();
+            port_stats.clear();
+            
+            // Phase 2: Reset TCP health and flow tracking
+            tcp_syn_count = 0;
+            tcp_ack_count = 0;
+            tcp_rst_count = 0;
+            tcp_fin_count = 0;
+            tcp_retransmissions = 0;
 
             window_start = Some(timestamp);
             window_end = window_start.unwrap() + window_size;
@@ -180,11 +388,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match headers.transport {
                     Some(etherparse::TransportHeader::Tcp(tcp)) => {
                         tcp_count += 1;
-                        flows.insert((src_ip, tcp.source_port, dst_ip, tcp.destination_port, "TCP".to_string()));
+                        let flow_key = (src_ip.clone(), tcp.source_port, dst_ip.clone(), tcp.destination_port, "TCP".to_string());
+                        let flow_entry = flow_stats.entry(flow_key).or_insert(FlowAgg {
+                            packet_count: 0,
+                            total_bytes: 0,
+                            first_ts: timestamp,
+                            last_ts: timestamp,
+                        });
+                        flow_entry.packet_count += 1;
+                        flow_entry.total_bytes += packet.data.len();
+                        flow_entry.last_ts = timestamp;
+
+                        // Phase 2: Track TCP flags
+                        if tcp.syn { tcp_syn_count += 1; }
+                        if tcp.ack { tcp_ack_count += 1; }
+                        if tcp.rst { tcp_rst_count += 1; }
+                        if tcp.fin { tcp_fin_count += 1; }
+
+                        let port_key = (tcp.destination_port, "TCP".to_string());
+                        let port_entry = port_stats.entry(port_key).or_insert(PortAgg {
+                            packet_count: 0,
+                            total_bytes: 0,
+                        });
+                        port_entry.packet_count += 1;
+                        port_entry.total_bytes += packet.data.len();
                     }
                     Some(etherparse::TransportHeader::Udp(udp)) => {
                         udp_count += 1;
-                        flows.insert((src_ip, udp.source_port, dst_ip, udp.destination_port, "UDP".to_string()));
+                        let flow_key = (src_ip.clone(), udp.source_port, dst_ip.clone(), udp.destination_port, "UDP".to_string());
+                        let flow_entry = flow_stats.entry(flow_key).or_insert(FlowAgg {
+                            packet_count: 0,
+                            total_bytes: 0,
+                            first_ts: timestamp,
+                            last_ts: timestamp,
+                        });
+                        flow_entry.packet_count += 1;
+                        flow_entry.total_bytes += packet.data.len();
+                        flow_entry.last_ts = timestamp;
+
+                        let port_key = (udp.destination_port, "UDP".to_string());
+                        let port_entry = port_stats.entry(port_key).or_insert(PortAgg {
+                            packet_count: 0,
+                            total_bytes: 0,
+                        });
+                        port_entry.packet_count += 1;
+                        port_entry.total_bytes += packet.data.len();
                     }
                     Some(etherparse::TransportHeader::Icmpv4(_)) |
                     Some(etherparse::TransportHeader::Icmpv6(_)) => {
@@ -222,12 +470,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let unique_src_ratio = if packet_count > 0 { unique_src_ips.len() as f64 / packet_count as f64 } else { 0.0 };
         let unique_dst_ratio = if packet_count > 0 { unique_dst_ips.len() as f64 / packet_count as f64 } else { 0.0 };
 
-        let flow_ratio = if packet_count > 0 { flows.len() as f64 / packet_count as f64 } else { 0.0 };
-        let avg_flow_packets = if flows.len() > 0 { packet_count as f64 / flows.len() as f64 } else { 0.0 };
-        let avg_flow_bytes = if flows.len() > 0 { total_bytes as f64 / flows.len() as f64 } else { 0.0 };
+        let flow_count = flow_stats.len();
+        let flow_ratio = if packet_count > 0 { flow_count as f64 / packet_count as f64 } else { 0.0 };
+        let avg_flow_packets = if flow_count > 0 { packet_count as f64 / flow_count as f64 } else { 0.0 };
+        let avg_flow_bytes = if flow_count > 0 { total_bytes as f64 / flow_count as f64 } else { 0.0 };
 
         let packets_per_sec = packet_count as f64 / window_size;
-        let bytes_per_sec = total_bytes as f64 * 8.0 / window_size; // bits/sec
+        let bytes_per_sec = total_bytes as f64 / window_size; // bytes/sec
+
+        let port_diversity = port_stats.len() as f64;
+
+        // Phase 2: Build histograms for final window
+        let packet_size_distribution = build_packet_size_histogram(&packet_sizes);
+        let flow_duration_distribution = build_flow_duration_histogram(&flow_stats);
+        let top_flows = build_top_flows(&flow_stats, 10);
+        let top_ports = build_top_ports(&port_stats, 10);
 
         let window = WindowFeature {
             window_start: window_start.unwrap(),
@@ -250,12 +507,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             unique_dst_ips: unique_dst_ips.len(),
             unique_src_ratio,
             unique_dst_ratio,
-            flow_count: flows.len(),
+            flow_count,
             flow_ratio,
             avg_flow_packets,
             avg_flow_bytes,
             packets_per_sec,
             bytes_per_sec,
+            port_diversity,
+            tcp_syn_count,
+            tcp_ack_count,
+            tcp_rst_count,
+            tcp_fin_count,
+            tcp_retransmissions,
+            packet_size_distribution,
+            flow_duration_distribution,
+            top_flows,
+            port_stats: top_ports,
         };
         window_features.push(window);
     }

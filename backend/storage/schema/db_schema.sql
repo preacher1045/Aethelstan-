@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS traffic_windows (
     avg_inter_arrival_time DOUBLE PRECISION,
     connection_rate DOUBLE PRECISION,
 
+    -- TCP Health Metrics (Phase 2)
+    tcp_syn_count INTEGER DEFAULT 0,
+    tcp_ack_count INTEGER DEFAULT 0,
+    tcp_rst_count INTEGER DEFAULT 0,
+    tcp_fin_count INTEGER DEFAULT 0,
+    tcp_retransmissions INTEGER DEFAULT 0,
+
+    -- Distribution Histograms (Phase 2)
+    packet_size_distribution JSONB, -- Histogram: {64: count, 128: count, 256: count, 512: count, 1024: count, 1500: count}
+    flow_duration_distribution JSONB, -- Histogram: {"0-5": count, "5-10": count, "10-20": count, "20-30": count, "30+": count}
+
     -- Metadata
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     features_json JSONB,
@@ -97,6 +108,57 @@ CREATE TABLE IF NOT EXISTS traffic_windows (
 
 CREATE INDEX IF NOT EXISTS idx_window_session ON traffic_windows(session_id);
 CREATE INDEX IF NOT EXISTS idx_window_composite ON traffic_windows(session_id, window_id);
+
+
+-- -----------------------------------------------------------------------------
+-- 2a. Flows Table (Top Flows)
+-- Stores per-window flow aggregates for Top Flows UI
+-- Depends on: pcap_sessions
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS flows (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(255) NOT NULL,
+    window_id INTEGER NOT NULL,
+    src_ip VARCHAR(45) NOT NULL,
+    dst_ip VARCHAR(45) NOT NULL,
+    src_port INTEGER,
+    dst_port INTEGER,
+    protocol VARCHAR(10) NOT NULL,
+    packet_count INTEGER NOT NULL,
+    total_bytes BIGINT NOT NULL,
+    duration_seconds DOUBLE PRECISION,
+    start_timestamp DOUBLE PRECISION,
+    end_timestamp DOUBLE PRECISION,
+
+    FOREIGN KEY (session_id) REFERENCES pcap_sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_flows_session ON flows(session_id);
+CREATE INDEX IF NOT EXISTS idx_flows_session_window ON flows(session_id, window_id);
+
+
+-- -----------------------------------------------------------------------------
+-- 2b. Port Stats Table (Port Usage Distribution)
+-- Stores per-window port aggregates for Top Ports UI
+-- Depends on: pcap_sessions
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS port_stats (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(255) NOT NULL,
+    window_id INTEGER NOT NULL,
+    port INTEGER NOT NULL,
+    protocol VARCHAR(10) NOT NULL,
+    service_name VARCHAR(50),
+    packet_count INTEGER NOT NULL,
+    total_bytes BIGINT NOT NULL,
+
+    FOREIGN KEY (session_id) REFERENCES pcap_sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_port_stats_session ON port_stats(session_id);
+CREATE INDEX IF NOT EXISTS idx_port_stats_session_window ON port_stats(session_id, window_id);
 
 
 -- -----------------------------------------------------------------------------

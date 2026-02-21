@@ -9,32 +9,25 @@ export default function AnomaliesPage() {
   const scoreSeries = useMemo(() => {
     if (results.length > 0) {
       return results.slice(0, 28).map((item) => ({
-        value: item.anomaly_score ?? 0.25,
+        value: item.anomaly_score ?? 0,
         isPeak: item.is_anomaly,
       }));
     }
 
-    return Array.from({ length: 28 }).map((_, i) => ({
-      value: Math.min(1, 0.18 + (i % 6) * 0.11 + (i % 7 === 0 ? 0.35 : 0)),
-      isPeak: i % 7 === 0,
-    }));
+    return [];
   }, [results]);
 
-  const maxScore = Math.max(...scoreSeries.map((point) => point.value), 1);
+  const maxScore = scoreSeries.length > 0 ? Math.max(...scoreSeries.map((point) => point.value), 1) : 1;
 
   const anomalyCards = useMemo(() => {
     const anomalies = results.filter((item) => item.is_anomaly).slice(0, 4);
     if (anomalies.length === 0) {
-      return ['Critical', 'High', 'Medium', 'Low'].map((severity, i) => ({
-        label: `${severity} anomaly`,
-        score: (0.92 - i * 0.12).toFixed(2),
-        summary: 'Unusual spike in short-lived TCP connections.',
-      }));
+      return [];
     }
 
     return anomalies.map((item) => ({
       label: `${item.severity_level ?? 'Anomaly'} window`,
-      score: (item.anomaly_score ?? 0.6).toFixed(2),
+      score: (item.anomaly_score ?? 0).toFixed(2),
       summary: item.anomaly_type ?? 'Behavioral deviation detected.',
     }));
   }, [results]);
@@ -48,11 +41,35 @@ export default function AnomaliesPage() {
       }));
     }
 
-    return [
-      { title: 'Unusual spike in short-lived TCP connections', detail: 'Potential scanning or automated bursts detected.' },
-      { title: 'Outbound traffic entropy increased sharply', detail: 'Possible data exfiltration or bulk transfers.' },
-    ];
+    return [];
   }, [insights]);
+
+  const featureContributions = useMemo(() => {
+    // Find the most anomalous window with contributing_features data
+    const anomalies = results
+      .filter((item) => item.is_anomaly && item.contributing_features)
+      .sort((a, b) => (a.anomaly_score ?? 0) - (b.anomaly_score ?? 0)); // Lower score = more anomalous
+    
+    if (anomalies.length === 0) {
+      return [];
+    }
+    
+    // Parse contributing_features from first (most anomalous) window
+    try {
+      const features = typeof anomalies[0].contributing_features === 'string' 
+        ? JSON.parse(anomalies[0].contributing_features)
+        : anomalies[0].contributing_features;
+      
+      // Convert to array format for display
+      return Object.entries(features).map(([feature, importance]) => ({
+        feature: feature.replace(/_/g, ' '), // Make readable
+        importance: Number(importance)
+      }));
+    } catch (e) {
+      console.error('Failed to parse contributing_features:', e);
+      return [];
+    }
+  }, [results]);
 
   return (
     <div className="space-y-6">
@@ -76,6 +93,7 @@ export default function AnomaliesPage() {
       <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-zinc-100">Anomaly Score Timeline</h3>
         <p className="text-xs text-zinc-500 mt-1">Isolation Forest scores across time windows</p>
+        {scoreSeries.length > 0 ? (
         <div className="mt-4 rounded-lg bg-zinc-950 border border-zinc-800 p-5">
           <div className="relative h-60">
             <div className="absolute left-0 top-0 bottom-8 w-12 flex flex-col justify-between text-[10px] text-zinc-500">
@@ -146,15 +164,22 @@ export default function AnomaliesPage() {
             <div className="ml-14 text-center text-[10px] text-zinc-500">Time Window</div>
           </div>
         </div>
+        ) : (
+        <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+          <p className="text-zinc-500 text-sm">No anomaly score data available</p>
+          <p className="text-zinc-600 text-xs mt-1">Run anomaly detection on a session first</p>
+        </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Anomalous Flows</h3>
           <p className="text-xs text-zinc-500 mt-1">Top flagged windows by severity</p>
+          {anomalyCards.length > 0 ? (
           <div className="mt-4 space-y-3">
-            {anomalyCards.map((card) => (
-              <div key={card.label} className="bg-zinc-950 border border-zinc-800 rounded-lg p-4">
+            {anomalyCards.map((card, index) => (
+              <div key={`${card.label}-${index}`} className="bg-zinc-950 border border-zinc-800 rounded-lg p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-zinc-200">{card.label}</span>
                   <span className="text-xs text-zinc-500">Score {card.score}</span>
@@ -165,27 +190,48 @@ export default function AnomaliesPage() {
               </div>
             ))}
           </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No anomalies detected</p>
+            <p className="text-zinc-600 text-xs mt-1">Normal traffic patterns</p>
+          </div>
+          )}
         </div>
 
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Feature Contribution</h3>
           <p className="text-xs text-zinc-500 mt-1">Why the model flagged these windows</p>
+          {featureContributions.length > 0 ? (
           <div className="mt-4 space-y-3">
-            {['Connection rate', 'Packet size variance', 'Unique dst IPs', 'Port diversity'].map((feature, i) => (
-              <div key={feature} className="flex items-center gap-3">
-                <span className="text-xs text-zinc-400 w-32">{feature}</span>
-                <div className="flex-1 h-2 bg-zinc-800 rounded-full">
-                  <div className="h-2 bg-amber-400 rounded-full" style={{ width: `${80 - i * 15}%` }}></div>
+            {featureContributions.map((item) => (
+              <div key={item.feature} className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm text-zinc-300 capitalize">{item.feature}</span>
+                    <span className="text-xs text-zinc-500">{item.importance.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-cyan-500 to-teal-500 rounded-full"
+                      style={{ width: `${item.importance}%` }}
+                    />
+                  </div>
                 </div>
-                <span className="text-xs text-zinc-500">{80 - i * 15}%</span>
               </div>
             ))}
           </div>
+          ) : (
+          <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+            <p className="text-zinc-500 text-sm">No feature contribution data available</p>
+            <p className="text-zinc-600 text-xs mt-1">Run anomaly detection to see ML explainability</p>
+          </div>
+          )}
         </div>
       </div>
 
       <div className="bg-gradient-to-r from-red-950/30 to-amber-950/30 border border-red-900/30 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-zinc-100">Insights</h3>
+        {insightCards.length > 0 ? (
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           {insightCards.map((card, index) => (
             <div key={`${card.title}-${index}`} className="bg-zinc-950 border border-zinc-800 rounded-lg p-4">
@@ -194,6 +240,12 @@ export default function AnomaliesPage() {
             </div>
           ))}
         </div>
+        ) : (
+        <div className="mt-4 rounded-lg border border-zinc-700/50 p-12 text-center">
+          <p className="text-zinc-500 text-sm">No alert insights available</p>
+          <p className="text-zinc-600 text-xs mt-1">Alerts will appear here when detected</p>
+        </div>
+        )}
       </div>
     </div>
   );

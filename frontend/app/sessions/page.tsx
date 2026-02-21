@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { getSessions, Session } from '@/lib/api';
 import SessionCard from '@/components/SessionCard';
 import Link from 'next/link';
@@ -11,11 +11,7 @@ export default function SessionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
-  useEffect(() => {
-    loadSessions();
-  }, [statusFilter]);
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -26,7 +22,11 @@ export default function SessionsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
 
   const filterOptions = [
     { label: 'All', value: undefined },
