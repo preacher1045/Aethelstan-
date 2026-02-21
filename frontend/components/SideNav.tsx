@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useSelectedSession } from '@/lib/SessionContext';
 
 const navItems = [
     { href: '/sessions', label: 'Session Overview', icon: 'M3 12h18' },
@@ -16,10 +17,29 @@ function isActivePath(pathname: string, href: string) {
         return pathname === '/';
     }
     return pathname === href || pathname.startsWith(`${href}/`);
-    }
+}
 
-    export default function SideNav() {
+export default function SideNav() {
     const pathname = usePathname();
+    const router = useRouter();
+    const { selectedSessionId } = useSelectedSession();
+
+    const handleSessionOverviewClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+        e.preventDefault();
+        
+        // If already on session detail page, don't navigate
+        if (pathname.startsWith('/sessions/')) {
+            return;
+        }
+        
+        // If we have a selected session ID, navigate to the session detail page
+        if (selectedSessionId) {
+            router.push(`/sessions/${selectedSessionId}`);
+        } else {
+            // Otherwise, go to sessions list
+            router.push('/sessions');
+        }
+    };
 
     return (
         <>
@@ -40,7 +60,36 @@ function isActivePath(pathname: string, href: string) {
 
             <nav className="flex-1 px-4 py-6 space-y-2">
             {navItems.map((item) => {
-                const isActive = isActivePath(pathname, item.href);
+                const isActive = item.label === 'Session Overview' 
+                    ? pathname.startsWith('/sessions')
+                    : isActivePath(pathname, item.href);
+                
+                // Special handling for Session Overview tab
+                if (item.label === 'Session Overview') {
+                    return (
+                        <a
+                            key={item.href}
+                            href="#"
+                            onClick={handleSessionOverviewClick}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors border cursor-pointer ${
+                            isActive
+                                ? 'bg-cyan-500/10 text-cyan-200 border-cyan-500/40 shadow-[0_0_0_1px_rgba(34,211,238,0.2)]'
+                                : 'text-zinc-300 border-transparent hover:text-white hover:bg-zinc-800/60'
+                            }`}
+                        >
+                            <svg
+                            className={`w-4 h-4 ${isActive ? 'text-cyan-300' : 'text-zinc-400'}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+                            </svg>
+                            {item.label}
+                        </a>
+                    );
+                }
+
                 return (
                 <Link
                     key={item.href}
@@ -69,7 +118,7 @@ function isActivePath(pathname: string, href: string) {
             <Link
                 href="/sessions"
                 className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors border ${
-                isActivePath(pathname, '/sessions')
+                isActivePath(pathname, '/sessions') && !pathname.startsWith('/sessions/')
                     ? 'bg-cyan-500/10 text-cyan-200 border-cyan-500/40'
                     : 'bg-zinc-800/60 text-zinc-200 border-transparent hover:bg-zinc-700/60'
                 }`}
@@ -109,7 +158,9 @@ function isActivePath(pathname: string, href: string) {
             <div className="px-4 pb-4 overflow-x-auto">
             <div className="flex gap-2 min-w-max">
                 {navItems.map((item) => {
-                const isActive = isActivePath(pathname, item.href);
+                const isActive = item.label === 'Session Overview'
+                    ? pathname.startsWith('/sessions')
+                    : isActivePath(pathname, item.href);
                 return (
                     <Link
                     key={item.href}

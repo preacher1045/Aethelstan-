@@ -14,6 +14,7 @@ export default function AnomaliesPage() {
   const anomaliesPerPage = 4;
   const [insightsPage, setInsightsPage] = useState(1);
   const insightsPerPage = 4;
+  const [expandedAnomalyId, setExpandedAnomalyId] = useState<number | null>(null);
 
   const scoreSeries = useMemo(() => {
     if (results.length === 0) {
@@ -201,6 +202,132 @@ export default function AnomaliesPage() {
     return insightCards.slice(start, end);
   }, [insightCards, insightsPage, insightsPerPage]);
 
+  // Helper function to generate Wireshark display filter
+  const generateWiresharkFilter = (windowId: number) => {
+    // Try to find window by id, then by window_id
+    let window = trafficWindows.find(w => w.id === windowId);
+    if (!window) {
+      window = trafficWindows.find(w => w.window_id === windowId);
+    }
+    
+    // If still not found, create basic window object from anomaly data
+    if (!window) {
+      console.warn(`Window ${windowId} not found in trafficWindows. Using default time-based filter.`);
+      // Get any anomaly result for this window to extract time info
+      const anomalyResult = results.find(r => r.window_id === windowId || r.traffic_window_id === windowId);
+      if (!anomalyResult) {
+        return null;
+      }
+      // Create a basic window object with estimated timestamps
+      window = {
+        id: windowId,
+        session_id: session?.session_id ?? '',
+        window_id: windowId,
+        window_start: (anomalyResult.created_at ? new Date(anomalyResult.created_at).getTime() / 1000 : 0),
+        window_end: (anomalyResult.created_at ? new Date(anomalyResult.created_at).getTime() / 1000 + 60 : 60),
+      };
+    }
+
+    // Get all flows that occurred during this window
+    const windowFlows = flows.filter(f => {
+      const timestamp = (f.start_timestamp ?? 0) * 1000; // Convert to ms if in seconds
+      const windowStart = (window?.window_start ?? 0) * 1000;
+      const windowEnd = (window?.window_end ?? 0) * 1000;
+      return timestamp >= windowStart && timestamp <= windowEnd;
+    });
+
+    // Time window info (always available)
+    const startTime = new Date((window?.window_start ?? 0) * 1000).toISOString();
+    const endTime = new Date((window?.window_end ?? 0) * 1000).toISOString();
+    const startTimestamp = window?.window_start ?? 0;
+    const endTimestamp = window?.window_end ?? 0;
+
+    // If no flows available, provide time-based filter as fallback
+    if (windowFlows.length === 0) {
+      // Extract protocol info from window stats
+      const protocols = [];
+      if ((window?.tcp_count ?? 0) > 0) protocols.push('tcp');
+      if ((window?.udp_count ?? 0) > 0) protocols.push('udp');
+      if ((window?.icmp_count ?? 0) > 0) protocols.push('icmp');
+      
+      const protocolArray = protocols.length > 0 ? protocols : [];
+      
+      // Time-based filter with protocol hints
+      let filter = 'frame.time_epoch >= ' + startTimestamp + ' and frame.time_epoch <= ' + endTimestamp;
+      if (protocolArray.length > 0 && protocolArray.length <= 3) {
+        filter += ' && (' + protocolArray.join(' || ') + ')';
+      }
+
+      return {
+        filter,
+        startTime,
+        endTime,
+        ips: [],
+        ports: [],
+        protocols: protocolArray,
+        flowCount: 0,
+        isFallback: true,
+        packetCount: window?.packet_count ?? 0,
+        totalBytes: window?.total_bytes ?? 0
+      };
+    }
+
+    // Extract unique IPs and ports from available flows
+    const ips = new Set<string>();
+    const ports = new Set<string>();
+    let protocols = new Set<string>();
+
+    windowFlows.forEach(f => {
+      if (f.src_ip) ips.add(f.src_ip);
+      if (f.dst_ip) ips.add(f.dst_ip);
+      if (f.src_port) ports.add(f.src_port.toString());
+      if (f.dst_port) ports.add(f.dst_port.toString());
+      if (f.protocol) {
+        protocols.add(f.protocol.toLowerCase());
+      }
+    });
+
+    const ipArray = Array.from(ips);
+    const portArray = Array.from(ports);
+    const protocolArray = Array.from(protocols);
+
+    // Build filter components
+    let filters = [];
+
+    // IP filter
+    if (ipArray.length > 0) {
+      if (ipArray.length === 1) {
+        filters.push(`(ip.src == ${ipArray[0]} || ip.dst == ${ipArray[0]})`);
+      } else {
+        filters.push(`(ip.src in {${ipArray.join(", ")}} || ip.dst in {${ipArray.join(", ")}})`);
+      }
+    }
+
+    // Protocol filter
+    if (protocolArray.length > 0 && protocolArray.length < 5) {
+      const protocolFilters = protocolArray.map(p => `${p.toUpperCase()}`);
+      if (protocolFilters.length === 1) {
+        filters.push(`${protocolFilters[0].toLowerCase()}`);
+      } else {
+        filters.push(`(${protocolFilters.map(p => p.toLowerCase()).join(' || ')})`);
+      }
+    }
+
+    let filter = filters.join(' && ');
+    if (!filter) filter = 'No filter available';
+
+    return {
+      filter,
+      startTime,
+      endTime,
+      ips: ipArray,
+      ports: portArray,
+      protocols: protocolArray,
+      flowCount: windowFlows.length,
+      isFallback: false
+    };
+  };
+
   const featureContributions = useMemo(() => {
     // Find the most anomalous window with contributing_features data
     const anomalies = results
@@ -386,6 +513,103 @@ export default function AnomaliesPage() {
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">
                   Top ports: <span className="text-zinc-400 font-mono">{card.topPorts}</span>
+                </div>
+                
+                {/* Wireshark Filter Section */}
+                <div className="mt-3 pt-3 border-t border-zinc-800">
+                  <button
+                    onClick={() => setExpandedAnomalyId(expandedAnomalyId === card.windowId ? null : card.windowId)}
+                    className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold transition-colors"
+                  >
+                    {expandedAnomalyId === card.windowId ? '▼' : '▶'} Verify in Wireshark
+                  </button>
+                  
+                  {expandedAnomalyId === card.windowId && (() => {
+                    const filterData = generateWiresharkFilter(card.windowId);
+                    return filterData ? (
+                      <div className="mt-2 space-y-2 bg-zinc-950/50 p-2 rounded border border-zinc-700/50">
+                        <div className="text-[10px] text-zinc-400 space-y-1">
+                          {filterData.ips.length > 0 && (
+                            <div>
+                              <span className="text-zinc-500">IPs:</span>
+                              <span className="text-cyan-300 ml-1 font-mono">{filterData.ips.join(', ')}</span>
+                            </div>
+                          )}
+                          {filterData.protocols.length > 0 && (
+                            <div>
+                              <span className="text-zinc-500">Protocols:</span>
+                              <span className="text-amber-300 ml-1 font-mono uppercase">{filterData.protocols.join(', ')}</span>
+                            </div>
+                          )}
+                          {filterData.ports && filterData.ports.length > 0 && (
+                            <div>
+                              <span className="text-zinc-500">Ports:</span>
+                              <span className="text-purple-300 ml-1 font-mono">{filterData.ports.slice(0, 5).join(', ')}{filterData.ports.length > 5 ? ` +${filterData.ports.length - 5}` : ''}</span>
+                            </div>
+                          )}
+                          <div>
+                            <span className="text-zinc-500">Time Window:</span>
+                            <span className="text-green-300 ml-1 font-mono">{new Date(filterData.startTime).toLocaleTimeString()}</span>
+                          </div>
+                        </div>
+                        
+                        {filterData.isFallback && (
+                          <div className="mt-2 p-2 bg-orange-950/30 border border-orange-800/50 rounded text-[9px] text-orange-200">
+                            <div className="font-semibold mb-1">⚠️ Limited Flow Data</div>
+                            <div className="text-orange-300 mb-1">
+                              Detailed flow information not available. Using time-based filter instead.
+                            </div>
+                            <div className="text-orange-300 text-[8px]">
+                              Window stats: <span className="font-mono text-yellow-300">{filterData.packetCount} packets, {((filterData.totalBytes ?? 0) / 1024 / 1024).toFixed(2)} MB</span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="mt-2">
+                          <div className="text-[10px] text-zinc-500 mb-1">Display Filter:</div>
+                          <div className="bg-black/50 border border-zinc-700 rounded p-2 flex items-start gap-2">
+                            <code className="text-[11px] text-cyan-300 font-mono flex-1 break-all">{filterData.filter}</code>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(filterData.filter);
+                              }}
+                              className="text-[10px] px-2 py-1 bg-cyan-500 text-zinc-900 rounded hover:bg-cyan-400 transition-colors shrink-0 font-semibold"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Protocol Layer Notes */}
+                        {filterData.protocols.includes('udp') && (
+                          <div className="mt-2 p-2 bg-blue-950/30 border border-blue-800/50 rounded text-[9px] text-blue-200">
+                            <div className="font-semibold mb-1">📡 Protocol Note</div>
+                            <div className="text-blue-300 mb-1">
+                              UDP filters will also match <span className="font-semibold text-cyan-300">QUIC</span> traffic, since QUIC is an application-layer protocol that runs on top of UDP.
+                            </div>
+                            <div className="text-blue-300 mb-1">
+                              In Wireshark, you might see packets labeled as <span className="font-mono text-purple-300">"QUIC"</span> even though the transport layer is UDP.
+                            </div>
+                            <div className="text-blue-300 text-[8px]">
+                              💡 To filter <span className="font-semibold">QUIC only</span> (excluding plain UDP), use: <span className="font-mono text-green-300">quic</span>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="text-[9px] text-zinc-500 italic">
+                          1. Open PCAP in Wireshark
+                          <br />
+                          2. Paste filter in Display Filter box
+                          <br />
+                          3. Review packets during anomaly window
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-[10px] text-zinc-500 bg-red-950/20 p-2 rounded">
+                        Unable to generate filter for this window
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               );
