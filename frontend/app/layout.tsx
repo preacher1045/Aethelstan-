@@ -4,6 +4,7 @@ import "./globals.css";
 import SideNav from "@/components/SideNav";
 import RootErrorBoundary from "@/components/RootErrorBoundary";
 import { SessionProvider } from "@/lib/SessionContext";
+import OnboardingBanner from "@/components/OnboardingBanner";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -35,6 +36,7 @@ export default function RootLayout({
                 <SideNav />
                 <div className="flex-1">
                   <main className="px-6 py-6 lg:px-10 lg:py-8">
+                    <OnboardingBanner />
                     {children}
                   </main>
                 </div>

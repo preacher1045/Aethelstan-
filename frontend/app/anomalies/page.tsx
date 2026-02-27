@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useSessionData } from '@/lib/useSessionData';
 import Pagination from '@/components/Pagination';
+import { exportToCSV } from '@/lib/export';
 
 export default function AnomaliesPage() {
   const searchParams = useSearchParams();
@@ -15,6 +16,8 @@ export default function AnomaliesPage() {
   const [insightsPage, setInsightsPage] = useState(1);
   const insightsPerPage = 4;
   const [expandedAnomalyId, setExpandedAnomalyId] = useState<number | null>(null);
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [protocolFilter, setProtocolFilter] = useState('all');
 
   const scoreSeries = useMemo(() => {
     if (results.length === 0) {
@@ -133,11 +136,44 @@ export default function AnomaliesPage() {
     });
   }, [results, trafficWindows, portStats]);
 
+  // Extract unique protocols from anomaly cards for filter dropdown
+  const availableProtocols = useMemo(() => {
+    const protocols = new Set<string>();
+    anomalyCards.forEach(card => {
+      if (card.topPorts && card.topPorts !== 'N/A') {
+        card.topPorts.split(', ').forEach(p => {
+          const proto = p.split('/')[0];
+          if (proto) protocols.add(proto);
+        });
+      }
+    });
+    return Array.from(protocols).sort();
+  }, [anomalyCards]);
+
+  // Filter anomaly cards by severity and protocol
+  const filteredAnomalyCards = useMemo(() => {
+    let filtered = anomalyCards;
+
+    if (severityFilter !== 'all') {
+      const severityOrder = ['low', 'medium', 'high', 'critical'];
+      const minIndex = severityOrder.indexOf(severityFilter);
+      filtered = filtered.filter(card => severityOrder.indexOf(card.severity) >= minIndex);
+    }
+
+    if (protocolFilter !== 'all') {
+      filtered = filtered.filter(card =>
+        card.topPorts.toUpperCase().includes(protocolFilter.toUpperCase())
+      );
+    }
+
+    return filtered;
+  }, [anomalyCards, severityFilter, protocolFilter]);
+
   const paginatedAnomalies = useMemo(() => {
     const start = (anomaliesPage - 1) * anomaliesPerPage;
     const end = start + anomaliesPerPage;
-    return anomalyCards.slice(start, end);
-  }, [anomalyCards, anomaliesPage, anomaliesPerPage]);
+    return filteredAnomalyCards.slice(start, end);
+  }, [filteredAnomalyCards, anomaliesPage, anomaliesPerPage]);
 
   const insightCards = useMemo(() => {
     const allInsights = insights.filter((item) => item.insight_type === 'alert');
@@ -357,9 +393,30 @@ export default function AnomaliesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-zinc-100">Anomalies & ML Insights</h1>
-        <p className="text-sm text-zinc-400 mt-1">Machine-detected unusual behavior and explainability</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-zinc-100">Anomalies & ML Insights</h1>
+          <p className="text-sm text-zinc-400 mt-1">Machine-detected unusual behavior and explainability</p>
+        </div>
+        <button
+          onClick={() => {
+            const rows = filteredAnomalyCards.map(c => ({
+              window_id: c.windowId,
+              severity: c.severity,
+              anomaly_score: c.score,
+              anomaly_type: c.anomalyType,
+              explanation: c.explanation,
+              packets: c.packets,
+              bytes: c.bytes,
+              top_ports: c.topPorts,
+            }));
+            exportToCSV(rows, `anomalies_${sessionId || 'latest'}`);
+          }}
+          disabled={filteredAnomalyCards.length === 0}
+          className="px-4 py-2 text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg transition-colors"
+        >
+          ⬇ Export CSV
+        </button>
       </div>
 
       {error && (
@@ -479,6 +536,53 @@ export default function AnomaliesPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* Filter Controls */}
+        <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6 lg:col-span-2">
+          <h3 className="text-lg font-semibold text-zinc-100">Filter Controls</h3>
+          <p className="text-xs text-zinc-500 mt-1">Narrow anomalies by severity and protocol</p>
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+              <label className="text-xs text-zinc-500 uppercase block mb-2">Severity</label>
+              <select
+                value={severityFilter}
+                onChange={(e) => { setSeverityFilter(e.target.value); setAnomaliesPage(1); }}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-cyan-500"
+              >
+                <option value="all">All Severities</option>
+                <option value="critical">Critical Only</option>
+                <option value="high">High & Above</option>
+                <option value="medium">Medium & Above</option>
+                <option value="low">Low & Above</option>
+              </select>
+            </div>
+            <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+              <label className="text-xs text-zinc-500 uppercase block mb-2">Protocol</label>
+              <select
+                value={protocolFilter}
+                onChange={(e) => { setProtocolFilter(e.target.value); setAnomaliesPage(1); }}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-cyan-500"
+              >
+                <option value="all">All Protocols</option>
+                {availableProtocols.map(proto => (
+                  <option key={proto} value={proto}>{proto}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-xs">
+            <span className="text-zinc-500">Active Filters:</span>
+            <span className="px-2 py-1 bg-cyan-500/10 text-cyan-300 rounded border border-cyan-500/30">
+              {severityFilter === 'all' ? 'All Severity' : severityFilter}
+            </span>
+            <span className="px-2 py-1 bg-cyan-500/10 text-cyan-300 rounded border border-cyan-500/30">
+              {protocolFilter === 'all' ? 'All Protocols' : protocolFilter}
+            </span>
+            <span className="text-zinc-600 ml-2">
+              {filteredAnomalyCards.length} of {anomalyCards.length} anomalies
+            </span>
+          </div>
+        </div>
+
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-zinc-100">Anomalous Flows</h3>
           <p className="text-xs text-zinc-500 mt-1">Flagged windows by severity level</p>
@@ -617,7 +721,7 @@ export default function AnomaliesPage() {
             </div>
             <Pagination
               currentPage={anomaliesPage}
-              totalItems={anomalyCards.length}
+              totalItems={filteredAnomalyCards.length}
               itemsPerPage={anomaliesPerPage}
               onPageChange={setAnomaliesPage}
             />

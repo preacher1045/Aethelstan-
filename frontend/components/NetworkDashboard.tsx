@@ -50,18 +50,31 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
         );
     }
 
-    // Calculate metrics
-    const anomalyCount = results.filter(r => r.is_anomaly).length;
-    const criticalCount = results.filter(r => r.severity_level?.toLowerCase() === 'critical').length;
-    const highCount = results.filter(r => r.severity_level?.toLowerCase() === 'high').length;
+    // Filter results by timeRange
+    const filteredResults = (() => {
+        if (timeRange === 'all') return results;
+        // Determine total window count for slice-based filtering
+        const total = results.length;
+        if (timeRange === '1h') {
+            // Show the most recent quarter of windows
+            return results.slice(Math.max(total - Math.ceil(total / 4), 0));
+        }
+        // '24h' — show the most recent half of windows
+        return results.slice(Math.max(total - Math.ceil(total / 2), 0));
+    })();
+
+    // Calculate metrics from filtered results
+    const anomalyCount = filteredResults.filter(r => r.is_anomaly).length;
+    const criticalCount = filteredResults.filter(r => r.severity_level?.toLowerCase() === 'critical').length;
+    const highCount = filteredResults.filter(r => r.severity_level?.toLowerCase() === 'high').length;
     
-    const avgScore = results.reduce((sum, r) => sum + (r.anomaly_score || 0), 0) / results.length;
-    const maxScore = Math.max(...results.map(r => r.anomaly_score || 0));
+    const avgScore = filteredResults.reduce((sum, r) => sum + (r.anomaly_score || 0), 0) / filteredResults.length;
+    const maxScore = Math.max(...filteredResults.map(r => r.anomaly_score || 0));
     
     // Network health score
     const healthScore = anomalyCount === 0 ? 'Optimal' :
-                        anomalyCount / results.length < 0.1 ? 'Normal' :
-                        anomalyCount / results.length < 0.3 ? 'Degraded' : 'Critical';
+                        anomalyCount / filteredResults.length < 0.1 ? 'Normal' :
+                        anomalyCount / filteredResults.length < 0.3 ? 'Degraded' : 'Critical';
     
     const healthColor = healthScore === 'Optimal' || healthScore === 'Normal' ? 'text-emerald-400' :
                         healthScore === 'Degraded' ? 'text-amber-400' : 'text-red-400';
@@ -73,14 +86,14 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
     const severityData = [
         { name: 'Critical', count: criticalCount, color: 'bg-red-500' },
         { name: 'High', count: highCount, color: 'bg-orange-500' },
-        { name: 'Medium', count: results.filter(r => r.severity_level?.toLowerCase() === 'medium').length, color: 'bg-amber-500' },
-        { name: 'Low', count: results.filter(r => r.severity_level?.toLowerCase() === 'low').length, color: 'bg-cyan-500' },
+        { name: 'Medium', count: filteredResults.filter(r => r.severity_level?.toLowerCase() === 'medium').length, color: 'bg-amber-500' },
+        { name: 'Low', count: filteredResults.filter(r => r.severity_level?.toLowerCase() === 'low').length, color: 'bg-cyan-500' },
     ];
 
     const maxSeverity = Math.max(...severityData.map(s => s.count), 1);
 
     // Anomaly timeline data
-    const timelineData = results.map((r, idx) => ({
+    const timelineData = filteredResults.map((r, idx) => ({
         window: idx + 1,
         score: r.anomaly_score || 0,
         isAnomaly: r.is_anomaly,
@@ -107,6 +120,21 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             <p className="text-sm text-zinc-400 mt-1">ML-Powered Traffic Analysis & Anomaly Detection</p>
             </div>
             <div className="flex items-center gap-2">
+            <div className="flex items-center bg-zinc-800 rounded border border-zinc-700 overflow-hidden">
+                {(['all', '1h', '24h'] as const).map(range => (
+                <button
+                    key={range}
+                    onClick={() => setTimeRange(range)}
+                    className={`px-3 py-1.5 text-xs transition-colors ${
+                    timeRange === range
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                >
+                    {range === 'all' ? 'All' : range === '1h' ? 'Recent' : 'Half'}
+                </button>
+                ))}
+            </div>
             <button
                 onClick={() => setExplanationMode(explanationMode === 'technical' ? 'beginner' : 'technical')}
                 className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors"
@@ -123,8 +151,8 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
             : "Total flow aggregation windows extracted from PCAP"}>
             <div className="bg-linear-to-br from-zinc-900 to-zinc-800 border border-zinc-700 rounded-lg p-4 hover:border-cyan-500/50 transition-colors">
                 <div className="text-xs text-zinc-400 uppercase tracking-wide mb-1">Total Windows</div>
-                <div className="text-2xl font-bold text-zinc-100">{results.length}</div>
-                <div className="text-xs text-cyan-400 mt-1">Time-aggregated</div>
+                <div className="text-2xl font-bold text-zinc-100">{filteredResults.length}</div>
+                <div className="text-xs text-cyan-400 mt-1">{timeRange === 'all' ? 'Time-aggregated' : `Filtered (${timeRange})`}</div>
             </div>
             </Tooltip>
 
@@ -167,7 +195,7 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
                 <div className="text-xs text-red-300 uppercase tracking-wide mb-1">Anomalies</div>
                 <div className="text-2xl font-bold text-red-400">{anomalyCount}</div>
                 <div className="text-xs text-red-500 mt-1">
-                {((anomalyCount / results.length) * 100).toFixed(1)}% of windows
+                {((anomalyCount / filteredResults.length) * 100).toFixed(1)}% of windows
                 </div>
             </div>
             </Tooltip>
@@ -399,13 +427,13 @@ export default function NetworkDashboard({ results, insights, totalPackets, tota
                 <div className="flex items-center justify-between py-3 border-b border-zinc-800">
                 <span className="text-sm text-zinc-400">Detection Rate</span>
                 <span className="text-lg font-semibold text-amber-400">
-                    {((anomalyCount / results.length) * 100).toFixed(1)}%
+                    {((anomalyCount / filteredResults.length) * 100).toFixed(1)}%
                 </span>
                 </div>
                 <div className="flex items-center justify-between py-3">
                 <span className="text-sm text-zinc-400">Normal Behavior</span>
                 <span className="text-lg font-semibold text-emerald-400">
-                    {(((results.length - anomalyCount) / results.length) * 100).toFixed(1)}%
+                    {(((filteredResults.length - anomalyCount) / filteredResults.length) * 100).toFixed(1)}%
                 </span>
                 </div>
             </div>

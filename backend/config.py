@@ -39,6 +39,6 @@ MODEL_PATH = BASE_DIR / "models" / "network_anomaly_model_combined.pkl"
 # -------------------------------------------------------------------
 # App Settings
 # -------------------------------------------------------------------
-MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", 4096)) # default 4GB
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", 8192)) # default 8GB
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 

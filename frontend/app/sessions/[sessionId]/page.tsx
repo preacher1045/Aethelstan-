@@ -320,10 +320,10 @@ export default function SessionDetailPage() {
                                     className="w-2 bg-cyan-400/70 rounded-t group relative cursor-pointer hover:bg-cyan-300 transition-colors"
                                     style={{ height: `${Math.min(100, (value / Math.max(...packetSeries, 1)) * 100)}%` }}
                                 >
-                                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-zinc-900 border border-cyan-500/50 rounded text-[10px] text-zinc-100 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                    <div className="font-semibold">Window {i + 1}</div>
-                                    <div>{value.toFixed(1)} pkt/sec</div>
-                                  </div>
+                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-zinc-900 border border-cyan-500/50 rounded text-[10px] text-zinc-100 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                        <div className="font-semibold">Window {i + 1}</div>
+                                        <div>{value.toFixed(1)} pkt/sec</div>
+                                    </div>
                                 </div>
                                 ))}
                             </div>

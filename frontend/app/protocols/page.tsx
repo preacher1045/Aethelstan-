@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useSessionData } from '@/lib/useSessionData';
 import Pagination from '@/components/Pagination';
+import { exportToCSV } from '@/lib/export';
 
 interface FlowData {
   id: number;
@@ -36,6 +37,9 @@ export default function ProtocolFlowPage() {
   const [portsPage, setPortsPage] = useState(1);
   const flowsPerPage = 4;
   const portsPerPage = 4;
+  const [protocolFilter, setProtocolFilter] = useState('all');
+  const [ipSearch, setIpSearch] = useState('');
+  const [portSearch, setPortSearch] = useState('');
 
   const topFlows = useMemo<FlowData[]>(() => {
     if (flows.length === 0) {
@@ -58,11 +62,31 @@ export default function ProtocolFlowPage() {
     });
   }, [flows]);
 
+  // Extract unique protocols for filter dropdown
+  const availableProtocols = useMemo(() => {
+    const protocols = new Set<string>();
+    topFlows.forEach(f => { if (f.protocol) protocols.add(f.protocol); });
+    return Array.from(protocols).sort();
+  }, [topFlows]);
+
+  // Filter flows by protocol and IP search
+  const filteredFlows = useMemo(() => {
+    let filtered = topFlows;
+    if (protocolFilter !== 'all') {
+      filtered = filtered.filter(f => f.protocol.toUpperCase() === protocolFilter.toUpperCase());
+    }
+    if (ipSearch.trim()) {
+      const q = ipSearch.trim().toLowerCase();
+      filtered = filtered.filter(f => f.src.toLowerCase().includes(q) || f.dst.toLowerCase().includes(q));
+    }
+    return filtered;
+  }, [topFlows, protocolFilter, ipSearch]);
+
   const paginatedFlows = useMemo(() => {
     const start = (flowsPage - 1) * flowsPerPage;
     const end = start + flowsPerPage;
-    return topFlows.slice(start, end);
-  }, [topFlows, flowsPage, flowsPerPage]);
+    return filteredFlows.slice(start, end);
+  }, [filteredFlows, flowsPage, flowsPerPage]);
 
   const portUsage = useMemo<PortUsageData[]>(() => {
     if (portStats.length === 0) {
@@ -97,11 +121,22 @@ export default function ProtocolFlowPage() {
     }));
   }, [portStats]);
 
+  // Filter port usage by port search
+  const filteredPortUsage = useMemo(() => {
+    if (!portSearch.trim()) return portUsage;
+    const q = portSearch.trim().toLowerCase();
+    return portUsage.filter(p =>
+      p.port.toString().includes(q) ||
+      p.service.toLowerCase().includes(q) ||
+      p.protocol.toLowerCase().includes(q)
+    );
+  }, [portUsage, portSearch]);
+
   const paginatedPorts = useMemo(() => {
     const start = (portsPage - 1) * portsPerPage;
     const end = start + portsPerPage;
-    return portUsage.slice(start, end);
-  }, [portUsage, portsPage, portsPerPage]);
+    return filteredPortUsage.slice(start, end);
+  }, [filteredPortUsage, portsPage, portsPerPage]);
 
   const tcpHealthMetrics = useMemo(() => {
     if (trafficWindows.length === 0) {
@@ -180,9 +215,28 @@ export default function ProtocolFlowPage() {
   }, [results, tcpHealthMetrics, portUsage]);
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-zinc-100">Protocol & Flow Insights</h1>
-        <p className="text-sm text-zinc-400 mt-1">Deep dive into flow-level behavior and protocol health</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-zinc-100">Protocol & Flow Insights</h1>
+          <p className="text-sm text-zinc-400 mt-1">Deep dive into flow-level behavior and protocol health</p>
+        </div>
+        <button
+          onClick={() => {
+            const rows = filteredFlows.map(f => ({
+              src_ip: f.src,
+              dst_ip: f.dst,
+              protocol: f.protocol,
+              duration: f.duration,
+              packets: f.packets,
+              bytes: f.bytes,
+            }));
+            exportToCSV(rows, `flows_${sessionId || 'latest'}`);
+          }}
+          disabled={filteredFlows.length === 0}
+          className="px-4 py-2 text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg transition-colors"
+        >
+          ⬇ Export CSV
+        </button>
       </div>
 
       {error && (
@@ -196,6 +250,66 @@ export default function ProtocolFlowPage() {
           Loading protocol insights from latest session...
         </div>
       )}
+
+      {/* Filter Controls */}
+      <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-zinc-100">Filter Controls</h3>
+        <p className="text-xs text-zinc-500 mt-1">Filter flows by protocol, IP address, or port</p>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+            <label className="text-xs text-zinc-500 uppercase block mb-2">Protocol</label>
+            <select
+              value={protocolFilter}
+              onChange={(e) => { setProtocolFilter(e.target.value); setFlowsPage(1); }}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-cyan-500"
+            >
+              <option value="all">All Protocols</option>
+              {availableProtocols.map(proto => (
+                <option key={proto} value={proto}>{proto}</option>
+              ))}
+            </select>
+          </div>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+            <label className="text-xs text-zinc-500 uppercase block mb-2">IP Address</label>
+            <input
+              type="text"
+              value={ipSearch}
+              onChange={(e) => { setIpSearch(e.target.value); setFlowsPage(1); }}
+              placeholder="Search src or dst IP..."
+              className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+            <label className="text-xs text-zinc-500 uppercase block mb-2">Port / Service</label>
+            <input
+              type="text"
+              value={portSearch}
+              onChange={(e) => { setPortSearch(e.target.value); setPortsPage(1); }}
+              placeholder="Search port or service..."
+              className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+        </div>
+        <div className="mt-4 flex items-center gap-2 text-xs flex-wrap">
+          <span className="text-zinc-500">Active Filters:</span>
+          <span className="px-2 py-1 bg-cyan-500/10 text-cyan-300 rounded border border-cyan-500/30">
+            {protocolFilter === 'all' ? 'All Protocols' : protocolFilter}
+          </span>
+          {ipSearch.trim() && (
+            <span className="px-2 py-1 bg-cyan-500/10 text-cyan-300 rounded border border-cyan-500/30">
+              IP: {ipSearch}
+            </span>
+          )}
+          {portSearch.trim() && (
+            <span className="px-2 py-1 bg-cyan-500/10 text-cyan-300 rounded border border-cyan-500/30">
+              Port: {portSearch}
+            </span>
+          )}
+          <span className="text-zinc-600 ml-2">
+            {filteredFlows.length} flows, {filteredPortUsage.length} ports
+          </span>
+        </div>
+      </div>
 
       <div className="bg-zinc-900/70 border border-zinc-800 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-zinc-100">Top Flows</h3>
@@ -230,7 +344,7 @@ export default function ProtocolFlowPage() {
           </div>
           <Pagination
             currentPage={flowsPage}
-            totalItems={topFlows.length}
+            totalItems={filteredFlows.length}
             itemsPerPage={flowsPerPage}
             onPageChange={setFlowsPage}
           />
@@ -312,7 +426,7 @@ export default function ProtocolFlowPage() {
             </div>
             <Pagination
               currentPage={portsPage}
-              totalItems={portUsage.length}
+              totalItems={filteredPortUsage.length}
               itemsPerPage={portsPerPage}
               onPageChange={setPortsPage}
             />
